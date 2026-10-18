@@ -491,8 +491,12 @@ public class MainActivity extends Activity {
         super.onResume();
         if (awaitingA11y) {
             awaitingA11y = false;
-            // 从无障碍设置页回来还没开：多半是“无障碍”被系统置灰了
-            if (applicable(3) && !AutoMode.isAccessibilityEnabled(this)) showRestrictedHelp();
+            // 回到留白：服务若已连上，自动跳回的标志早被它清掉了；没连上说明用户放弃或没开成功，标志作废
+            AutoAccessibilityService.clearReturn(sp);
+            // “允许受限制的设置”是 Android 13 才有的限制；更低版本没开成功只是用户没开，不弹说明
+            if (Build.VERSION.SDK_INT >= 33 && applicable(3) && !AutoMode.isAccessibilityEnabled(this)) {
+                showRestrictedHelp();
+            }
         }
         AutoAccessibilityService.onStateChanged = () -> runOnUiThread(this::refreshPerms);
         AutoMode.evaluate(this);   // 重启后总开关还是开着，但遮罩没在运行：这里补上
@@ -715,7 +719,7 @@ public class MainActivity extends Activity {
         name.setTypeface(Typeface.DEFAULT_BOLD);
         text.addView(name);
         TextView desc = new TextView(this);
-        desc.setText(stale ? "在设置里关闭再打开即可" : permDesc(i));
+        desc.setText(stale ? "在设置里关闭再打开即可；经常断开请允许留白自启动并锁定后台任务" : permDesc(i));
         desc.setTextSize(12);
         desc.setTextColor(Ui.WARN_SUB);
         desc.setPadding(0, dp(3), 0, 0);
@@ -802,7 +806,7 @@ public class MainActivity extends Activity {
                     break;
                 default:
                     // 开启成功后，留白会自己跳回前台，不用手动返回
-                    sp.edit().putBoolean(AutoAccessibilityService.KEY_RETURN, true).apply();
+                    AutoAccessibilityService.markReturn(sp);
                     awaitingA11y = true;
                     openAccessibility();
             }
@@ -845,8 +849,9 @@ public class MainActivity extends Activity {
     private void showRestrictedHelp() {
         new AlertDialog.Builder(this)
                 .setTitle("无障碍选项是灰色的")
-                .setMessage("1. 打开应用信息页\n"
-                        + "2. 右上角 ⋮ → 允许受限制的设置\n"
+                .setMessage("如果刚才没能打开，且“留白”那一项是灰色的：\n"
+                        + "1. 先回到无障碍页面，点一下灰色的“留白”（系统会提示受限制）\n"
+                        + "2. 打开应用信息页，右上角 ⋮ → 允许受限制的设置\n"
                         + "3. 回到留白，再点一次“开启”")
                 .setPositiveButton("应用信息", (d, w) -> startActivity(new Intent(
                         Settings.ACTION_APPLICATION_DETAILS_SETTINGS,

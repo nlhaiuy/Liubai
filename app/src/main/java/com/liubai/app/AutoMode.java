@@ -6,8 +6,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.service.quicksettings.TileService;
+import android.util.Log;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodManager;
 
@@ -93,8 +95,29 @@ public final class AutoMode {
         return recommended.contains(pkg);
     }
 
-    private static String fg = "";
-    private static Context appCtx;
+    private static final String TAG = "LiubaiAuto";
+
+    /** 当前前台软件包名；事件来自主线程，界面线程也会读，所以用 volatile。 */
+    private static volatile String fg = "";
+    private static volatile Context appCtx;
+
+    /**
+     * 会临时盖在视频软件上、关闭后不一定再发“窗口切换”事件的系统弹窗（权限请求、分享面板等）：
+     * 不当作切换前台，否则弹窗关掉后遮罩会一直被当成“已离开视频软件”而不再显示。
+     */
+    private static final Set<String> TRANSIENT_PKGS = new HashSet<>(Arrays.asList(
+            "com.android.permissioncontroller",
+            "com.google.android.permissioncontroller",
+            "com.android.intentresolver"));
+
+    /** 白名单缓存：每个窗口事件都会判断一次，不必每次都读 SharedPreferences 并拷贝集合。 */
+    private static volatile Set<String> appsCache;
+    private static SharedPreferences.OnSharedPreferenceChangeListener prefListener;
+
+    /** 输入法包名缓存：避免每个事件都跨进程查询输入法列表。 */
+    private static volatile Set<String> imeCache = new HashSet<>();
+    private static long imeCacheAt = -1;
+    private static final long IME_CACHE_MS = 30_000L;
 
     private AutoMode() { }
 
@@ -134,12 +157,46 @@ public final class AutoMode {
         return new HashSet<>(s);
     }
 
+    /** 当前白名单里是否包含这个包（带缓存，白名单被修改时自动失效）。 */
+    private static boolean isSelected(Context c, String pkg) {
+        Set<String> s = appsCache;
+        if (s == null) {
+            s = selectedApps(c);
+            appsCache = s;
+        }
+        return s.contains(pkg);
+    }
+
+    private static void ensureListener(Context c) {
+        if (prefListener != null) return;
+        prefListener = (sp, key) -> {
+            if (key == null || KEY_APPS.equals(key)) appsCache = null;
+        };
+        prefs(c).registerOnSharedPreferenceChangeListener(prefListener);
+    }
+
+    /** 系统设置里“留白”的无障碍开关是否开着（逐项比较组件名，并检查无障碍总开关）。 */
     public static boolean isAccessibilityEnabled(Context c) {
-        String s = Settings.Secure.getString(c.getContentResolver(),
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        if (s == null) return false;
-        ComponentName cn = new ComponentName(c, AutoAccessibilityService.class);
-        return s.contains(cn.flattenToString()) || s.contains(cn.flattenToShortString());
+        try {
+            if (Settings.Secure.getInt(c.getContentResolver(),
+                    Settings.Secure.ACCESSIBILITY_ENABLED, 0) != 1) return false;
+            String s = Settings.Secure.getString(c.getContentResolver(),
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+            if (s == null || s.isEmpty()) return false;
+            ComponentName me = new ComponentName(c, AutoAccessibilityService.class);
+            for (String part : s.split(":")) {
+                if (me.equals(ComponentName.unflattenFromString(part.trim()))) return true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "isAccessibilityEnabled failed", e);
+        }
+        return false;
+    }
+
+    /** 无障碍服务断开：旧的前台记录作废，并重新判断（白名单模式下会把遮罩收起来）。 */
+    public static void onServiceGone(Context c) {
+        fg = "";
+        evaluate(c);
     }
 
     // ---------------- 事件输入 ----------------
@@ -168,6 +225,7 @@ public final class AutoMode {
         if (pkg == null || pkg.isEmpty()) return;
         if (pkg.equals(c.getPackageName())) return;                     // 在设置留白本身时不算
         if (pkg.equals("com.android.systemui") || pkg.equals("android")) return; // 下拉通知栏等
+        if (TRANSIENT_PKGS.contains(pkg)) return;                       // 权限弹窗 / 分享面板等临时窗口
         if (isIme(c, pkg)) return;                                      // 输入法
         fg = pkg;
         evaluate(c);
@@ -178,16 +236,19 @@ public final class AutoMode {
     /** 按“总开关 + 模式 + 当前前台软件”算出该不该显示，和实际状态不一致就开 / 关。 */
     public static void evaluate(Context c) {
         appCtx = c.getApplicationContext();
+        ensureListener(appCtx);
         boolean desired = shouldShow();
         if (desired != MaskService.running) apply(desired);
     }
 
     private static boolean shouldShow() {
-        if (!isMaster(appCtx)) return false;        // 总开关关：全部关闭
-        if (!isEnabled(appCtx)) return true;        // 白名单模式关：全局显示
-        return !fg.isEmpty()                        // 白名单模式开：只在白名单软件里
-                && selectedApps(appCtx).contains(fg)
-                && isScreenActive(appCtx);
+        Context c = appCtx;
+        if (!isMaster(c)) return false;             // 总开关关：全部关闭
+        if (!isEnabled(c)) return true;             // 白名单模式关：全局显示
+        String f = fg;
+        return !f.isEmpty()                         // 白名单模式开：只在白名单软件里
+                && isSelected(c, f)
+                && isScreenActive(c);
     }
 
     /** 亮屏且未锁屏：息屏、锁屏后台继续播放时，不显示留白。 */
@@ -204,22 +265,34 @@ public final class AutoMode {
     private static void apply(boolean on) {
         Intent i = new Intent(appCtx, MaskService.class);
         if (on) {
-            if (!Settings.canDrawOverlays(appCtx)) return;
+            if (!Settings.canDrawOverlays(appCtx)) {
+                Log.w(TAG, "mask not started: overlay permission missing");
+                return;
+            }
             try {
                 appCtx.startForegroundService(i);
-            } catch (Exception ignored) { }
+            } catch (Exception e) {
+                // 例如后台启动前台服务被系统拒绝：留一条日志，方便排查“为什么没显示”
+                Log.w(TAG, "mask not started: startForegroundService failed", e);
+            }
         } else {
             appCtx.stopService(i);
         }
     }
 
     private static boolean isIme(Context c, String pkg) {
-        try {
-            InputMethodManager imm = (InputMethodManager) c.getSystemService(Context.INPUT_METHOD_SERVICE);
-            for (InputMethodInfo info : imm.getEnabledInputMethodList()) {
-                if (info.getPackageName().equals(pkg)) return true;
-            }
-        } catch (Exception ignored) { }
-        return false;
+        long now = SystemClock.elapsedRealtime();
+        if (imeCacheAt < 0 || now - imeCacheAt > IME_CACHE_MS) {
+            try {
+                InputMethodManager imm = (InputMethodManager) c.getSystemService(Context.INPUT_METHOD_SERVICE);
+                Set<String> s = new HashSet<>();
+                for (InputMethodInfo info : imm.getEnabledInputMethodList()) {
+                    s.add(info.getPackageName());
+                }
+                imeCache = s;
+            } catch (Exception ignored) { /* 查询失败就沿用旧缓存 */ }
+            imeCacheAt = now;
+        }
+        return imeCache.contains(pkg);
     }
 }
