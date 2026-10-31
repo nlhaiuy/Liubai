@@ -34,6 +34,7 @@ public class MaskService extends Service {
     public static final int MAX_LAYERS = 6;
 
     private static final String CHANNEL_ID = "mask";
+    private static final String CHANNEL_IDLE_ID = "mask_idle";
     public static boolean running = false;
     /** 正在运行的服务：设置页拖动微调时直接调它，不用每一格都重新启动服务。 */
     private static MaskService instance;
@@ -43,6 +44,7 @@ public class MaskService extends Service {
     private WindowManager wm;
     private final java.util.List<View> bars = new java.util.ArrayList<>();
     private int builtW, builtH, builtLayers;    // 当前这批遮罩是按什么尺寸建的
+    private boolean notifActive = false;        // 通知当前是不是“遮罩已开启”
 
     @Override
     public void onCreate() {
@@ -52,16 +54,12 @@ public class MaskService extends Service {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(
                 CHANNEL_ID, "遮罩状态", NotificationManager.IMPORTANCE_LOW));
-        Notification n = new Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("遮罩已开启")
-                .setContentText("点按进入设置")
-                .setContentIntent(android.app.PendingIntent.getActivity(this, 0,
-                        new Intent(this, MainActivity.class)
-                                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP),
-                        android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT))
-                .setSmallIcon(R.drawable.ic_tile)
-                .setOngoing(true)
-                .build();
+        nm.createNotificationChannel(new NotificationChannel(
+                CHANNEL_IDLE_ID, "遮罩待命", NotificationManager.IMPORTANCE_MIN));
+        // 系统要求 startForegroundService 后几秒内必须 startForeground，所以这里先挂一条
+        // 最低优先级的“待命”通知（无状态栏图标、不提示）；真正盖上遮罩后 update() 再换成
+        // “遮罩已开启”。
+        Notification n = buildNotification(false);
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
         } else {
@@ -78,6 +76,30 @@ public class MaskService extends Service {
         if (s == null) return false;
         s.update();
         return true;
+    }
+
+    private Notification buildNotification(boolean active) {
+        return new Notification.Builder(this, active ? CHANNEL_ID : CHANNEL_IDLE_ID)
+                .setContentTitle(active ? "遮罩已开启" : "遮罩待命中")
+                .setContentText(active ? "点按进入设置" : "切到横屏后自动显示")
+                .setContentIntent(android.app.PendingIntent.getActivity(this, 0,
+                        new Intent(this, MainActivity.class)
+                                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                        android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT))
+                .setSmallIcon(R.drawable.ic_tile)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .build();
+    }
+
+    /** 遮罩真的盖上屏幕才显示“已开启”；竖屏等没有遮罩的时候退回待命通知。 */
+    private void setNotificationActive(boolean active) {
+        if (notifActive == active) return;
+        notifActive = active;
+        try {
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
+                    .notify(1, buildNotification(active));
+        } catch (Exception ignored) { }
     }
 
     private void refreshTile() {
@@ -108,6 +130,7 @@ public class MaskService extends Service {
         int w = m.widthPixels, h = m.heightPixels;
         if (w <= h) {            // 竖屏不需要遮罩
             removeViews(false);
+            setNotificationActive(false);
             return;
         }
 
@@ -120,6 +143,7 @@ public class MaskService extends Service {
         bar = Math.max(0, Math.min(bar, w / 2));
         if (bar == 0) {
             removeViews(false);
+            setNotificationActive(false);
             return;
         }
 
@@ -156,6 +180,7 @@ public class MaskService extends Service {
                 builtLayers = layers;
                 fade(gone, 1f, 0f, FADE_OUT_MS, true);
             }
+            setNotificationActive(true);
             return;
         }
 
@@ -168,6 +193,7 @@ public class MaskService extends Service {
         builtH = h;
         builtLayers = layers;
         fade(new java.util.ArrayList<>(bars), 0f, 1f, FADE_IN_MS, false);
+        setNotificationActive(true);   // 遮罩已经加到屏幕上了，才显示“已开启”
     }
 
     /**
