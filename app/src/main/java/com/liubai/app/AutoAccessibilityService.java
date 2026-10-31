@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.Toast;
@@ -123,6 +124,13 @@ public class AutoAccessibilityService extends AccessibilityService {
         } catch (Exception ex) {
             Log.w(TAG, "trim event types failed", ex);
         }
+    }
+
+    /** 旋转屏幕：白名单模式下只在横屏时启动遮罩服务，竖屏时停掉，所以要在这里重新判断。 */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        AutoMode.evaluate(this);
     }
 
     @Override

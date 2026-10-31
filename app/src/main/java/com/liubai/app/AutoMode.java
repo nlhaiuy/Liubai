@@ -8,8 +8,11 @@ import android.content.SharedPreferences;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.hardware.display.DisplayManager;
 import android.service.quicksettings.TileService;
+import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.Display;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodManager;
 
@@ -246,9 +249,24 @@ public final class AutoMode {
         if (!isMaster(c)) return false;             // 总开关关：全部关闭
         if (!isEnabled(c)) return true;             // 白名单模式关：全局显示
         String f = fg;
-        return !f.isEmpty()                         // 白名单模式开：只在白名单软件里
+        return !f.isEmpty()                         // 白名单模式开：只在白名单软件里，且横屏才启动服务
                 && isSelected(c, f)
-                && isScreenActive(c);
+                && isScreenActive(c)
+                && isLandscape(c);                  // 竖屏不启动，也就没有通知（旋转由无障碍服务触发重新判断）
+    }
+
+    /** 和 MaskService 用同一种算法：真实屏幕宽 > 高才算横屏。 */
+    @SuppressWarnings("deprecation")
+    private static boolean isLandscape(Context c) {
+        try {
+            Display d = ((DisplayManager) c.getSystemService(Context.DISPLAY_SERVICE))
+                    .getDisplay(Display.DEFAULT_DISPLAY);
+            DisplayMetrics m = new DisplayMetrics();
+            d.getRealMetrics(m);
+            return m.widthPixels > m.heightPixels;
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     /** 亮屏且未锁屏：息屏、锁屏后台继续播放时，不显示留白。 */
