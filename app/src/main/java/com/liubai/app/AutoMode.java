@@ -103,6 +103,12 @@ public final class AutoMode {
     /** 当前前台软件包名；事件来自主线程，界面线程也会读，所以用 volatile。 */
     private static volatile String fg = "";
     private static volatile Context appCtx;
+    /**
+     * 已经发出启动请求、但服务的 onCreate 可能还没跑：startForegroundService 是异步的，
+     * 这段时间 MaskService.running 仍是 false。只看 running 的话，期间判断变成“不该显示”
+     * 会被当成“本来就没开”而漏发停止，服务随后启动并一直留着（通知也不会消失）。
+     */
+    private static volatile boolean requested = false;
 
     /**
      * 会临时盖在视频软件上、关闭后不一定再发“窗口切换”事件的系统弹窗（权限请求、分享面板等）：
@@ -241,8 +247,12 @@ public final class AutoMode {
         appCtx = c.getApplicationContext();
         ensureListener(appCtx);
         boolean desired = shouldShow();
-        if (desired != MaskService.running) apply(desired);
+        boolean on = MaskService.running || requested;
+        if (desired != on) apply(desired);
     }
+
+    /** MaskService 销毁时调用：不管是被我们停掉还是被系统杀掉，都不再算“已请求”。 */
+    static void onMaskStopped() { requested = false; }
 
     private static boolean shouldShow() {
         Context c = appCtx;
@@ -289,11 +299,14 @@ public final class AutoMode {
             }
             try {
                 appCtx.startForegroundService(i);
+                requested = true;
             } catch (Exception e) {
+                requested = false;
                 // 例如后台启动前台服务被系统拒绝：留一条日志，方便排查“为什么没显示”
                 Log.w(TAG, "mask not started: startForegroundService failed", e);
             }
         } else {
+            requested = false;
             appCtx.stopService(i);
         }
     }

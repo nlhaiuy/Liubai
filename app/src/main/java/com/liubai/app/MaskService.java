@@ -131,6 +131,7 @@ public class MaskService extends Service {
         if (w <= h) {            // 竖屏不需要遮罩
             removeViews(false);
             setNotificationActive(false);
+            AutoMode.evaluate(this);   // 白名单模式下竖屏不该留着服务：自己再核对一次，该停就停
             return;
         }
 
@@ -144,6 +145,7 @@ public class MaskService extends Service {
         if (bar == 0) {
             removeViews(false);
             setNotificationActive(false);
+            AutoMode.evaluate(this);
             return;
         }
 
@@ -269,6 +271,7 @@ public class MaskService extends Service {
     public void onDestroy() {
         removeViews(true);
         running = false;
+        AutoMode.onMaskStopped();
         if (instance == this) instance = null;
         refreshTile();
         super.onDestroy();
