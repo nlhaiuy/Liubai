@@ -102,6 +102,19 @@ public class MaskService extends Service {
         } catch (Exception ignored) { }
     }
 
+    /**
+     * 没有遮罩可显示：该停服务（白名单模式竖屏等）就停，并且不再碰通知——
+     * stopService 一调用系统就会撤掉前台通知，这时再 notify 会把它重新发成一条没人管的残留通知；
+     * 还要留着服务（全局模式）才退回待命通知。
+     */
+    private void goIdle() {
+        if (!AutoMode.shouldRun(this)) {
+            AutoMode.evaluate(this);
+            return;
+        }
+        setNotificationActive(false);
+    }
+
     private void refreshTile() {
         try {
             TileService.requestListeningState(this,
@@ -130,8 +143,7 @@ public class MaskService extends Service {
         int w = m.widthPixels, h = m.heightPixels;
         if (w <= h) {            // 竖屏不需要遮罩
             removeViews(false);
-            setNotificationActive(false);
-            AutoMode.evaluate(this);   // 白名单模式下竖屏不该留着服务：自己再核对一次，该停就停
+            goIdle();
             return;
         }
 
@@ -144,8 +156,7 @@ public class MaskService extends Service {
         bar = Math.max(0, Math.min(bar, w / 2));
         if (bar == 0) {
             removeViews(false);
-            setNotificationActive(false);
-            AutoMode.evaluate(this);
+            goIdle();
             return;
         }
 
@@ -272,6 +283,9 @@ public class MaskService extends Service {
         removeViews(true);
         running = false;
         AutoMode.onMaskStopped();
+        try {   // 兜底：停服务之后若还有迟到的 notify，在这里一并清掉，避免残留
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(1);
+        } catch (Exception ignored) { }
         if (instance == this) instance = null;
         refreshTile();
         super.onDestroy();

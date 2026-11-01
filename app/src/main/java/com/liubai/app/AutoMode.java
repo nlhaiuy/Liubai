@@ -251,6 +251,13 @@ public final class AutoMode {
         if (desired != on) apply(desired);
     }
 
+    /** 按当前设置，此刻是否还该留着遮罩服务（MaskService 发通知前先问一下，该停就别再发）。 */
+    static boolean shouldRun(Context c) {
+        appCtx = c.getApplicationContext();
+        ensureListener(appCtx);
+        return shouldShow();
+    }
+
     /** MaskService 销毁时调用：不管是被我们停掉还是被系统杀掉，都不再算“已请求”。 */
     static void onMaskStopped() { requested = false; }
 
