@@ -26,7 +26,6 @@ public class Segmented extends View {
     private final RectF rect = new RectF();
     private ValueAnimator anim;
     private OnSelect cb;
-    private boolean compact;           // 小号：放在标题行右边
 
     public Segmented(Context c, String[] labels, int sel) {
         this(c, labels, sel, null);
@@ -44,8 +43,6 @@ public class Segmented extends View {
     }
 
     public void setOnSelect(OnSelect cb) { this.cb = cb; }
-
-    public void setCompact(boolean c) { compact = c; requestLayout(); invalidate(); }
 
     public int getSelected() { return sel; }
 
@@ -66,7 +63,7 @@ public class Segmented extends View {
 
     @Override
     protected void onMeasure(int w, int h) {
-        setMeasuredDimension(MeasureSpec.getSize(w), Math.round(Ui.dp(getContext(), compact ? 42 : 54)));
+        setMeasuredDimension(MeasureSpec.getSize(w), Math.round(Ui.dp(getContext(), 54)));
     }
 
     @Override
@@ -93,7 +90,7 @@ public class Segmented extends View {
         paint.setShader(null);
 
         // 文字（和可选的画幅图标）
-        paint.setTextSize(Ui.sp(c, compact ? 13 : 15));
+        paint.setTextSize(Ui.sp(c, 15));
         paint.setTextAlign(Paint.Align.LEFT);
         float ty = h / 2 - (paint.ascent() + paint.descent()) / 2;
         float gap = Ui.dp(c, 8);

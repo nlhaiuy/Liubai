@@ -29,12 +29,10 @@ public class MaskService extends Service {
     public static final String KEY_RATIO = "ratio";   // 视频宽高比，默认 16/9
     public static final String KEY_OFFSET = "offset"; // 微调(dp)，正数=遮罩变宽
     public static final String KEY_LAYERS = "layers"; // 每侧叠几层：1=标准，3=加强
-    public static final String KEY_PORTRAIT = "portrait"; // 竖屏遮罩总开关：竖屏播放时盖住视频上下
-    // 竖屏的设置和横屏分开保存
-    public static final String KEY_RATIO_P = "ratio_p";   // 竖屏时的视频宽高比，默认 16/9（视频撑满屏幕宽度）
+    public static final String KEY_PORTRAIT = "portrait"; // 视频比例选了“竖屏”：竖屏时盖住视频上下（视频 16:9、撑满屏幕宽度）
+    // 竖屏的微调和位置与横屏分开保存
     public static final String KEY_OFFSET_P = "offset_p"; // 竖屏微调(dp)，正数=上下遮罩变厚
     public static final String KEY_POS_P = "pos_p";       // 视频在竖屏里的上下位置：0=贴顶，0.5=居中，1=贴底
-    public static final String KEY_TAB_P = "tab_portrait"; // 设置页当前在编辑竖屏（界面状态）
     public static final float DEFAULT_RATIO = 16f / 9f;
     public static final int DEFAULT_LAYERS = 1;
     public static final int MAX_LAYERS = 6;
@@ -162,7 +160,7 @@ public class MaskService extends Service {
                 return;
             }
             // 视频撑满宽度，上下位置由 pos 决定：上边黑条 = 剩余高度 × pos
-            float ratio = sp.getFloat(KEY_RATIO_P, DEFAULT_RATIO);
+            float ratio = DEFAULT_RATIO;
             int offsetPx = Math.round(sp.getInt(KEY_OFFSET_P, 0) * m.density);
             float free = Math.max(0f, h - w / ratio);
             float pos = Math.max(0f, Math.min(1f, sp.getFloat(KEY_POS_P, 0.5f)));

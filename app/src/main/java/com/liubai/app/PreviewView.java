@@ -14,7 +14,7 @@ import android.view.View;
 
 /**
  * 演示屏：开启后，视频两边（横屏）或上下（竖屏）的黑边变成白色。
- * 当前在编辑横屏还是竖屏由 KEY_TAB_P 决定；比例、微调与真实遮罩算法一致。
+ * 选了“竖屏”（KEY_PORTRAIT）就画竖屏；比例、微调与真实遮罩算法一致。
  * 竖屏时可以上下拖动画面，调整视频在屏幕里的位置。
  * 屏幕外有一圈很细的浅蓝灰描边，白边才看得出边界。外面的白色卡片由使用它的布局提供。
  */
@@ -45,11 +45,11 @@ public class PreviewView extends View {
 
     public void setOnPositionChange(Runnable r) { onPosition = r; }
 
-    private boolean portrait() { return sp.getBoolean(MaskService.KEY_TAB_P, false); }
+    private boolean portrait() { return sp.getBoolean(MaskService.KEY_PORTRAIT, false); }
 
     private float curRatio() {
-        return sp.getFloat(portrait() ? MaskService.KEY_RATIO_P : MaskService.KEY_RATIO,
-                MaskService.DEFAULT_RATIO);
+        return portrait() ? MaskService.DEFAULT_RATIO
+                : sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
     }
 
     private int curOffset() {
