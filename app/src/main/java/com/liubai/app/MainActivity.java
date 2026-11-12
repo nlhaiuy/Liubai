@@ -55,6 +55,9 @@ public class MainActivity extends Activity {
     private LinearLayout permBox;
     private TextView statusTv, appsLink, resetBtn;
     private PreviewView preview;
+    private boolean editPortrait;                   // 设置页当前在编辑竖屏还是横屏
+    private Segmented ratioL, ratioP;               // 横屏 / 竖屏各自的比例选择
+    private TextView posHint;                       // 竖屏：拖动画面调位置的提示
     private LinearLayout settingsCard;
     private LinearLayout.LayoutParams settingsLp;   // 设置卡的上边距：授权卡显示时 12dp，收起时补回 16dp
     private PowerButton power;
@@ -67,6 +70,10 @@ public class MainActivity extends Activity {
 
     private int dp(float v) { return Math.round(v * density); }
 
+    /** 横屏 / 竖屏的设置分开存。 */
+    private String offKey() { return editPortrait ? MaskService.KEY_OFFSET_P : MaskService.KEY_OFFSET; }
+    private String ratioKey() { return editPortrait ? MaskService.KEY_RATIO_P : MaskService.KEY_RATIO; }
+
     private LinearLayout.LayoutParams lp(int w, int h) {
         return new LinearLayout.LayoutParams(w, h);
     }
@@ -78,6 +85,7 @@ public class MainActivity extends Activity {
         density = getResources().getDisplayMetrics().density;
         vib = (Vibrator) getSystemService(VIBRATOR_SERVICE);
         land = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        editPortrait = sp.getBoolean(MaskService.KEY_TAB_P, false);
         Ui.lightWindow(this);
 
         final int screenW = getResources().getDisplayMetrics().widthPixels;
@@ -234,6 +242,7 @@ public class MainActivity extends Activity {
         plp.setMargins(-dp(PreviewView.PAD_X), -dp(PreviewView.PAD_T),
                 -dp(PreviewView.PAD_X), -dp(PreviewView.PAD_B - 10));
         shot.addView(preview, plp);
+        preview.setOnPositionChange(() -> showOffset(slider.getValue(), true));
 
         resetBtn = new TextView(this);
         resetBtn.setText("↺");
@@ -249,13 +258,29 @@ public class MainActivity extends Activity {
         Ui.lift(resetBtn, 4, 0x554F7CFF, 0x884F7CFF);
         resetBtn.setAlpha(0f);
         resetBtn.setClickable(false);
-        resetBtn.setOnClickListener(v -> setOffset(0));
+        resetBtn.setOnClickListener(v -> {
+            if (editPortrait) {   // 竖屏：位置一起回到居中
+                sp.edit().putFloat(MaskService.KEY_POS_P, 0.5f).apply();
+                preview.invalidate();
+            }
+            setOffset(0);
+            showOffset(0, true);
+            changed();
+        });
         Ui.press(resetBtn, 0.9f);
         FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(dp(44), dp(44),
                 Gravity.TOP | Gravity.END);
         rlp.setMargins(0, dp(4), dp(4), 0);
         shot.addView(resetBtn, rlp);
         stage.addView(shot, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        posHint = new TextView(this);
+        posHint.setText("上下拖动画面，调整视频位置");
+        posHint.setTextSize(12);
+        posHint.setTextColor(Ui.DIM);
+        posHint.setGravity(Gravity.CENTER);
+        posHint.setVisibility(editPortrait ? View.VISIBLE : View.GONE);
+        stage.addView(posHint, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout fine = new LinearLayout(this);
         fine.setOrientation(LinearLayout.HORIZONTAL);
@@ -266,11 +291,11 @@ public class MainActivity extends Activity {
         slider = new Slider(this);
         slider.setContentDescription("宽度微调");
         applyRange();
-        int off = Math.max(slider.getMin(), Math.min(Slider.MAX, sp.getInt(MaskService.KEY_OFFSET, 0)));
+        int off = Math.max(slider.getMin(), Math.min(Slider.MAX, sp.getInt(offKey(), 0)));
         slider.setValue(off);
         showOffset(off, false);
         slider.setOnChange((v, user) -> {
-            sp.edit().putInt(MaskService.KEY_OFFSET, v).apply();
+            sp.edit().putInt(offKey(), v).apply();
             showOffset(v, true);
             if (user) tick(v);
             changed();
@@ -343,7 +368,7 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    private LinearLayout labelRow(String text, TextView right) {
+    private LinearLayout labelRow(String text, View right) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -355,7 +380,11 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams tlp = lp(0, ViewGroup.LayoutParams.WRAP_CONTENT);
         tlp.weight = 1f;
         row.addView(t, tlp);
-        if (right != null) row.addView(right);
+        if (right instanceof Segmented) {
+            row.addView(right, lp(dp(150), ViewGroup.LayoutParams.WRAP_CONTENT));
+        } else if (right != null) {
+            row.addView(right);
+        }
         return row;
     }
 
@@ -405,33 +434,85 @@ public class MainActivity extends Activity {
         s.addView(seg, below());
     }
 
+    /**
+     * 视频比例：标题右边一个“横屏 / 竖屏”小切换，横屏、竖屏的设置分开保存；
+     * 下面是当前一侧的比例。竖屏多一个“关闭”（竖屏默认不遮），图标和比例里的一致。
+     */
     private void buildRatioRow(LinearLayout card) {
         LinearLayout s = section(card, false);
-        s.addView(labelRow("视频比例", null));
 
-        float cur = sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
-        boolean portrait = sp.getBoolean(MaskService.KEY_PORTRAIT, false);
-        int sel = portrait ? 2 : Math.abs(RATIO_VALUES[1] - cur) < 0.001f ? 1 : 0;
-        if (sel == 0) sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[0]).apply();
-        Segmented seg = new Segmented(this, new String[]{"16:9", "4:3", "竖 16:9"}, sel,
-                new float[]{16f / 9f, 4f / 3f, 9f / 16f});
-        seg.setOnSelect(i -> {
-            // 竖屏 = 竖屏播放 16:9 视频，盖上下黑边；横屏仍按 16:9
-            sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[i == 1 ? 1 : 0])
-                    .putBoolean(MaskService.KEY_PORTRAIT, i == 2).apply();
-            preview.ratioChanged();
-            applyRange();
-            int cur2 = sp.getInt(MaskService.KEY_OFFSET, 0);
-            if (cur2 < slider.getMin()) {      // 换画幅后黑边变窄，微调跟着收回到新的下限
-                sp.edit().putInt(MaskService.KEY_OFFSET, slider.getMin()).apply();
-                slider.setValue(slider.getMin());
-                showOffset(slider.getMin(), false);
-            }
-            slider.invalidate();
-            changed();
+        Segmented orient = new Segmented(this, new String[]{"横屏", "竖屏"}, editPortrait ? 1 : 0,
+                new float[]{16f / 9f, 9f / 16f});
+        orient.setCompact(true);
+        orient.setOnSelect(i -> {
+            editPortrait = i == 1;
+            sp.edit().putBoolean(MaskService.KEY_TAB_P, editPortrait).apply();
+            onTabChanged();
         });
-        Ui.press(seg, 0.985f);
-        s.addView(seg, below());
+        Ui.press(orient, 0.985f);
+        LinearLayout lr = labelRow("视频比例", orient);
+        lr.setMinimumHeight(dp(44));
+        LinearLayout.LayoutParams lrp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lrp.topMargin = -dp(8);
+        lrp.bottomMargin = -dp(8);
+        s.addView(lr, lrp);
+
+        // 横屏
+        float cur = sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
+        int selL = Math.abs(RATIO_VALUES[1] - cur) < 0.001f ? 1 : 0;
+        if (selL == 0) sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[0]).apply();
+        ratioL = new Segmented(this, new String[]{"16:9", "4:3"}, selL, RATIO_VALUES);
+        ratioL.setOnSelect(i -> {
+            sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[i]).apply();
+            afterRatioChanged();
+        });
+        Ui.press(ratioL, 0.985f);
+        s.addView(ratioL, below());
+
+        // 竖屏：关闭 / 16:9 / 4:3
+        float curP = sp.getFloat(MaskService.KEY_RATIO_P, MaskService.DEFAULT_RATIO);
+        boolean on = sp.getBoolean(MaskService.KEY_PORTRAIT, false);
+        int selP = !on ? 0 : Math.abs(RATIO_VALUES[1] - curP) < 0.001f ? 2 : 1;
+        ratioP = new Segmented(this, new String[]{"关闭", "16:9", "4:3"}, selP,
+                new float[]{0f, 16f / 9f, 4f / 3f});
+        ratioP.setOnSelect(i -> {
+            SharedPreferences.Editor ed = sp.edit().putBoolean(MaskService.KEY_PORTRAIT, i > 0);
+            if (i > 0) ed.putFloat(MaskService.KEY_RATIO_P, RATIO_VALUES[i - 1]);
+            ed.apply();
+            afterRatioChanged();
+        });
+        Ui.press(ratioP, 0.985f);
+        s.addView(ratioP, below());
+
+        ratioL.setVisibility(editPortrait ? View.GONE : View.VISIBLE);
+        ratioP.setVisibility(editPortrait ? View.VISIBLE : View.GONE);
+    }
+
+    /** 比例变了：演示屏平滑过渡，微调范围收回到新的下限。 */
+    private void afterRatioChanged() {
+        preview.ratioChanged();
+        applyRange();
+        int cur2 = sp.getInt(offKey(), 0);
+        if (cur2 < slider.getMin()) {      // 换画幅后黑边变窄，微调跟着收回到新的下限
+            sp.edit().putInt(offKey(), slider.getMin()).apply();
+            slider.setValue(slider.getMin());
+            showOffset(slider.getMin(), false);
+        }
+        slider.invalidate();
+        changed();
+    }
+
+    /** 横屏 / 竖屏切换：下面的比例、微调、演示屏都换成对应一侧的设置。 */
+    private void onTabChanged() {
+        ratioL.setVisibility(editPortrait ? View.GONE : View.VISIBLE);
+        ratioP.setVisibility(editPortrait ? View.VISIBLE : View.GONE);
+        posHint.setVisibility(editPortrait ? View.VISIBLE : View.GONE);
+        applyRange();
+        int off = Math.max(slider.getMin(), Math.min(Slider.MAX, sp.getInt(offKey(), 0)));
+        slider.setValue(off);
+        showOffset(off, false);
+        preview.tabChanged();
     }
 
     private void buildStrengthRow(LinearLayout card) {
@@ -452,7 +533,9 @@ public class MainActivity extends Activity {
 
     private void showOffset(int v, boolean animate) {
         if (resetBtn == null) return;
-        boolean show = v != 0;
+        // 竖屏：位置不在居中也算有改动，“归零”要能点
+        boolean show = v != 0 || (editPortrait
+                && Math.abs(sp.getFloat(MaskService.KEY_POS_P, 0.5f) - 0.5f) > 0.001f);
         resetBtn.setClickable(show);
         resetBtn.setEnabled(show);
         float a = show ? 1f : 0f, s = show ? 1f : 0.8f;
@@ -467,14 +550,14 @@ public class MainActivity extends Activity {
 
     /** 微调下限 = 当前画幅下一侧黑边的宽度：再往负，遮罩已经是 0 了，没有意义。 */
     private void applyRange() {
-        float ratio = sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
-        slider.setMin(-Ui.baseBarDp(this, ratio));
+        float ratio = sp.getFloat(ratioKey(), MaskService.DEFAULT_RATIO);
+        slider.setMin(-(editPortrait ? Ui.basePortraitBarDp(this, ratio) : Ui.baseBarDp(this, ratio)));
     }
 
     private void setOffset(int v) {
         v = Math.max(slider.getMin(), Math.min(Slider.MAX, v));
-        if (v == slider.getValue() && sp.getInt(MaskService.KEY_OFFSET, 0) == v) return;
-        sp.edit().putInt(MaskService.KEY_OFFSET, v).apply();
+        if (v == slider.getValue() && sp.getInt(offKey(), 0) == v) return;
+        sp.edit().putInt(offKey(), v).apply();
         slider.setValue(v);
         showOffset(v, true);
         tick(v);

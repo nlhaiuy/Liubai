@@ -65,6 +65,12 @@ final class Ui {
         return Math.max(0, (int) Math.floor((s[0] - s[1] * ratio) / 2f / s[2]));
     }
 
+    /** 竖屏时，视频撑满宽度、上下居中，每边黑边的高度（dp）。 */
+    static int basePortraitBarDp(Context c, float ratio) {
+        float[] s = realScreen(c);
+        return Math.max(0, (int) Math.floor((s[0] - s[1] / ratio) / 2f / s[2]));
+    }
+
     /**
      * 让阴影不被父布局切掉：Android 默认会把子 View 的绘制裁在父布局（和它的内边距）里，
      * 阴影一出界就变成一条直边。滚动容器 / 列表要保留裁剪，其余全部放开。

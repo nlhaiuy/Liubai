@@ -9,13 +9,14 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Shader;
-import android.util.DisplayMetrics;
+import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * 演示屏：一块横屏，开启后两侧的黑边变成白色。
- * 比例、宽度微调与真实遮罩算法一致；屏幕外有一圈很细的浅蓝灰描边，白边才看得出边界。
- * 外面的白色卡片由使用它的布局提供。
+ * 演示屏：开启后，视频两边（横屏）或上下（竖屏）的黑边变成白色。
+ * 当前在编辑横屏还是竖屏由 KEY_TAB_P 决定；比例、微调与真实遮罩算法一致。
+ * 竖屏时可以上下拖动画面，调整视频在屏幕里的位置。
+ * 屏幕外有一圈很细的浅蓝灰描边，白边才看得出边界。外面的白色卡片由使用它的布局提供。
  */
 public class PreviewView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -27,13 +28,32 @@ public class PreviewView extends View {
     private ValueAnimator anim;
     private float shownRatio;          // 正在显示的画幅（切换 16:9 / 4:3 时平滑过渡）
     private ValueAnimator ratioAnim;
+    private Runnable onPosition;       // 拖动改变了竖屏位置
+    private float lastY;
+    private boolean dragging;
+
+    /** 竖屏演示屏的高度（dp）。 */
+    private static final int PORTRAIT_H = 210;
 
     public PreviewView(Context c) {
         super(c);
         sp = c.getSharedPreferences(MaskService.PREFS, Context.MODE_PRIVATE);
         amount = AutoMode.isMaster(c) ? 1f : 0f;
-        shownRatio = sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
+        shownRatio = curRatio();
         setLayerType(LAYER_TYPE_SOFTWARE, null);   // 让屏幕下面的阴影在所有机型上都能画出来
+    }
+
+    public void setOnPositionChange(Runnable r) { onPosition = r; }
+
+    private boolean portrait() { return sp.getBoolean(MaskService.KEY_TAB_P, false); }
+
+    private float curRatio() {
+        return sp.getFloat(portrait() ? MaskService.KEY_RATIO_P : MaskService.KEY_RATIO,
+                MaskService.DEFAULT_RATIO);
+    }
+
+    private int curOffset() {
+        return sp.getInt(portrait() ? MaskService.KEY_OFFSET_P : MaskService.KEY_OFFSET, 0);
     }
 
     public void setOn(boolean on) {
@@ -49,11 +69,9 @@ public class PreviewView extends View {
     /** 为阴影留的空间（dp）：布局里要用同样大小的负边距把它抵消掉。 */
     public static final int PAD_X = 12, PAD_T = 8, PAD_B = 22;
 
-    /** 用真实屏幕的比例，小窗 / 分屏时也和真正的遮罩一致。 */
     /** 画幅改了：视频画面平滑地变宽 / 变窄，不再瞬间跳。 */
     public void ratioChanged() {
-        requestLayout();   // 横屏 / 竖屏演示屏高度不同
-        float to = sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
+        float to = curRatio();
         if (ratioAnim != null) ratioAnim.cancel();
         if (!isLaidOut() || Math.abs(to - shownRatio) < 0.001f) { shownRatio = to; invalidate(); return; }
         ratioAnim = ValueAnimator.ofFloat(shownRatio, to);
@@ -63,16 +81,30 @@ public class PreviewView extends View {
         ratioAnim.start();
     }
 
-    private boolean portrait() {
-        return sp.getBoolean(MaskService.KEY_PORTRAIT, false);
+    /** 切换了横屏 / 竖屏：演示屏高度不同，直接换。 */
+    public void tabChanged() {
+        if (ratioAnim != null) ratioAnim.cancel();
+        shownRatio = curRatio();
+        requestLayout();
+        invalidate();
     }
 
-    /** 竖屏演示屏的高度（dp）。 */
-    private static final int PORTRAIT_H = 210;
-
+    /** 用真实屏幕的比例，小窗 / 分屏时也和真正的遮罩一致。 */
     private float aspect() {
         float[] s = Ui.realScreen(getContext());
         return Math.max(16f / 9f, Math.min(2.4f, s[0] / s[1]));
+    }
+
+    /** 演示屏的尺寸：{宽, 高}（px，不含阴影留白）。 */
+    private float[] screenSize() {
+        Context c = getContext();
+        float[] scr = Ui.realScreen(c);
+        float areaW = getWidth() - 2 * Ui.dp(c, PAD_X);
+        if (portrait()) {
+            float sh = Ui.dp(c, PORTRAIT_H);
+            return new float[]{sh * scr[1] / scr[0], sh};
+        }
+        return new float[]{areaW, areaW / aspect()};
     }
 
     @Override
@@ -89,14 +121,13 @@ public class PreviewView extends View {
         Context c = getContext();
         float[] scr = Ui.realScreen(c);
         float density = scr[2];
-        float longPx = scr[0];
         boolean port = portrait();
         float areaW = getWidth() - 2 * Ui.dp(c, PAD_X);
-        float sh = port ? Ui.dp(c, PORTRAIT_H) : areaW / aspect();
-        float sw = port ? sh * scr[1] / scr[0] : areaW;   // 竖屏：一块居中的竖屏
+        float[] sz = screenSize();
+        float sw = sz[0], sh = sz[1];
+        float scale = port ? sw / scr[1] : sw / scr[0];   // 演示屏上 1 个真实 px 对应多少（dp 要先乘 density）
         cv.save();
         cv.translate(Ui.dp(c, PAD_X) + (areaW - sw) / 2f, Ui.dp(c, PAD_T));
-        float scale = port ? sw / scr[1] : sw / longPx;  // 演示屏上 1 个真实 px 对应多少（dp 要先乘 density）
         float rad = Ui.dp(c, 18);
 
         // 屏幕本体 + 两层阴影：宽而淡的环境影 + 紧贴屏幕的接触影
@@ -116,24 +147,26 @@ public class PreviewView extends View {
         paint.setColor(Ui.EDGE);
         cv.drawRect(0, 0, sw, sh, paint);
 
-        // 视频画面
+        // 视频画面 + 遮罩厚度（a = 左 / 上，b = 右 / 下）
         float ratio = shownRatio;
-        int off = sp.getInt(MaskService.KEY_OFFSET, 0);
-        float bar, vl, vt, vw, vh;
+        float off = curOffset() * density * scale;
+        float vl, vt, vw, vh, a, b;
         if (port) {
+            float pos = Math.max(0f, Math.min(1f, sp.getFloat(MaskService.KEY_POS_P, 0.5f)));
             vw = sw;
-            vh = sw / MaskService.DEFAULT_RATIO;
+            vh = sw / ratio;
             vl = 0f;
-            vt = (sh - vh) / 2f;
-            bar = (sh - vh) / 2f + off * density * scale;   // 上下遮罩的高度
-            bar = Math.max(0f, Math.min(bar, sh / 2f));
+            float free = Math.max(0f, sh - vh);
+            vt = free * pos;
+            a = Math.max(0f, Math.min(vt + off, sh));
+            b = Math.max(0f, Math.min(free - vt + off, sh - a));
         } else {
             vw = Math.min(sw, sh * ratio);
             vh = sh;
             vl = (sw - vw) / 2f;
             vt = 0f;
-            bar = (sw - sh * ratio) / 2f + off * density * scale;   // 左右遮罩的宽度
-            bar = Math.max(0f, Math.min(bar, sw / 2f));
+            a = Math.max(0f, Math.min(vl + off, sw / 2f));
+            b = a;
         }
         paint.setShader(new LinearGradient(vl, vt, vl + vw, vt + vh,
                 new int[]{0xFF7F93D8, 0xFF4A5BA8, 0xFF323F7A}, new float[]{0f, 0.55f, 1f},
@@ -143,7 +176,7 @@ public class PreviewView extends View {
 
         // 播放键
         paint.setColor(0xE0FFFFFF);
-        float cx = sw / 2f, cy = sh / 2f, ts = Math.min(sw, sh) * 0.14f;
+        float cx = vl + vw / 2f, cy = vt + vh / 2f, ts = Math.min(vw, vh) * 0.14f;
         tri.reset();
         tri.moveTo(cx - ts * 0.6f, cy - ts);
         tri.lineTo(cx - ts * 0.6f, cy + ts);
@@ -153,32 +186,33 @@ public class PreviewView extends View {
 
         // 遮罩：黑边 → 白边（横屏盖左右，竖屏盖上下）
         paint.setColor(Ui.blend(Ui.EDGE, 0xFFFFFFFF, amount));
+        float edge = Ui.dp(c, 10);
+        int alpha = Math.round(0x2E * amount);
+        int dark = (alpha << 24) | 0x1F2638, none = 0x001F2638;
+        boolean shade = amount > 0.01f;
         if (port) {
-            cv.drawRect(0, 0, sw, bar, paint);
-            cv.drawRect(0, sh - bar, sw, sh, paint);
-        } else {
-            cv.drawRect(0, 0, bar, sh, paint);
-            cv.drawRect(sw - bar, 0, sw, sh, paint);
-        }
-
-        // 白边靠视频一侧的一点点阴影，让白边和画面分得开
-        if (amount > 0.01f && bar > 0f) {
-            float edge = Ui.dp(c, 10);
-            int a = Math.round(0x2E * amount);
-            int dark = (a << 24) | 0x1F2638, none = 0x001F2638;
-            if (port) {
-                paint.setShader(new LinearGradient(0, bar, 0, bar + edge, dark, none, Shader.TileMode.CLAMP));
-                cv.drawRect(0, bar, sw, bar + edge, paint);
-                paint.setShader(new LinearGradient(0, sh - bar, 0, sh - bar - edge, dark, none, Shader.TileMode.CLAMP));
-                cv.drawRect(0, sh - bar - edge, sw, sh - bar, paint);
-            } else {
-                paint.setShader(new LinearGradient(bar, 0, bar + edge, 0, dark, none, Shader.TileMode.CLAMP));
-                cv.drawRect(bar, 0, bar + edge, sh, paint);
-                paint.setShader(new LinearGradient(sw - bar, 0, sw - bar - edge, 0, dark, none, Shader.TileMode.CLAMP));
-                cv.drawRect(sw - bar - edge, 0, sw - bar, sh, paint);
+            if (a > 0f) cv.drawRect(0, 0, sw, a, paint);
+            if (b > 0f) cv.drawRect(0, sh - b, sw, sh, paint);
+            // 白边靠视频一侧的一点点阴影，让白边和画面分得开
+            if (shade && a > 0f) {
+                paint.setShader(new LinearGradient(0, a, 0, a + edge, dark, none, Shader.TileMode.CLAMP));
+                cv.drawRect(0, a, sw, a + edge, paint);
             }
-            paint.setShader(null);
+            if (shade && b > 0f) {
+                paint.setShader(new LinearGradient(0, sh - b, 0, sh - b - edge, dark, none, Shader.TileMode.CLAMP));
+                cv.drawRect(0, sh - b - edge, sw, sh - b, paint);
+            }
+        } else {
+            cv.drawRect(0, 0, a, sh, paint);
+            cv.drawRect(sw - b, 0, sw, sh, paint);
+            if (shade && a > 0f) {
+                paint.setShader(new LinearGradient(a, 0, a + edge, 0, dark, none, Shader.TileMode.CLAMP));
+                cv.drawRect(a, 0, a + edge, sh, paint);
+                paint.setShader(new LinearGradient(sw - b, 0, sw - b - edge, 0, dark, none, Shader.TileMode.CLAMP));
+                cv.drawRect(sw - b - edge, 0, sw - b, sh, paint);
+            }
         }
+        paint.setShader(null);
 
         // 玻璃感：左上一抹高光，底部一点暗
         paint.setShader(new LinearGradient(0, 0, sw * 0.45f, sh * 0.75f, 0x2AFFFFFF, 0x00FFFFFF,
@@ -187,7 +221,7 @@ public class PreviewView extends View {
         if (!port) {   // 底部压暗只盖在两条白边之间，白边保持纯白
             paint.setShader(new LinearGradient(0, sh * 0.7f, 0, sh, 0x00141A32, 0x1A141A32,
                     Shader.TileMode.CLAMP));
-            cv.drawRect(bar, sh * 0.7f, sw - bar, sh, paint);
+            cv.drawRect(a, sh * 0.7f, sw - b, sh, paint);
         }
         paint.setShader(null);
         cv.restore();
@@ -200,5 +234,37 @@ public class PreviewView extends View {
         cv.drawRoundRect(rect, rad, rad, paint);
         paint.setStyle(Paint.Style.FILL);
         cv.restore();
+    }
+
+    /** 竖屏：上下拖动画面，调整视频在屏幕里的位置（0 = 贴顶，0.5 = 居中，1 = 贴底）。 */
+    @Override
+    public boolean onTouchEvent(MotionEvent e) {
+        if (!portrait()) return super.onTouchEvent(e);
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                dragging = true;
+                lastY = e.getY();
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (!dragging) return true;
+                float[] sz = screenSize();
+                float free = sz[1] - sz[0] / curRatio();
+                if (free > 1f) {
+                    float pos = sp.getFloat(MaskService.KEY_POS_P, 0.5f) + (e.getY() - lastY) / free;
+                    pos = Math.max(0f, Math.min(1f, pos));
+                    sp.edit().putFloat(MaskService.KEY_POS_P, pos).apply();
+                    invalidate();
+                    if (onPosition != null) onPosition.run();
+                }
+                lastY = e.getY();
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                dragging = false;
+                return true;
+            default:
+                return true;
+        }
     }
 }

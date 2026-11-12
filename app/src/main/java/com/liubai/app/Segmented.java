@@ -26,6 +26,7 @@ public class Segmented extends View {
     private final RectF rect = new RectF();
     private ValueAnimator anim;
     private OnSelect cb;
+    private boolean compact;           // 小号：放在标题行右边
 
     public Segmented(Context c, String[] labels, int sel) {
         this(c, labels, sel, null);
@@ -43,6 +44,8 @@ public class Segmented extends View {
     }
 
     public void setOnSelect(OnSelect cb) { this.cb = cb; }
+
+    public void setCompact(boolean c) { compact = c; requestLayout(); invalidate(); }
 
     public int getSelected() { return sel; }
 
@@ -63,7 +66,7 @@ public class Segmented extends View {
 
     @Override
     protected void onMeasure(int w, int h) {
-        setMeasuredDimension(MeasureSpec.getSize(w), Math.round(Ui.dp(getContext(), 54)));
+        setMeasuredDimension(MeasureSpec.getSize(w), Math.round(Ui.dp(getContext(), compact ? 42 : 54)));
     }
 
     @Override
@@ -90,22 +93,23 @@ public class Segmented extends View {
         paint.setShader(null);
 
         // 文字（和可选的画幅图标）
-        paint.setTextSize(Ui.sp(c, 15));
+        paint.setTextSize(Ui.sp(c, compact ? 13 : 15));
         paint.setTextAlign(Paint.Align.LEFT);
         float ty = h / 2 - (paint.ascent() + paint.descent()) / 2;
         float gap = Ui.dp(c, 8);
         for (int i = 0; i < labels.length; i++) {
-            float gh = glyphs != null && glyphs[i] < 1f ? Ui.dp(c, 17) : Ui.dp(c, 12); // 竖向图标画高一点，免得像个“0”
+            float gh = glyphs != null && glyphs[i] > 0f && glyphs[i] < 1f ? Ui.dp(c, 17) : Ui.dp(c, 12); // 竖向图标画高一点，免得像个“0”
             float near = 1f - Math.min(1f, Math.abs(i - pos));
             int color = Ui.blend(Ui.DIM, 0xFFFFFFFF, near);
             paint.setColor(color);
             paint.setFakeBoldText(near > 0.5f);
 
             float tw = paint.measureText(labels[i]);
-            float gw = glyphs != null ? gh * glyphs[i] : 0f;
-            float total = tw + (glyphs != null ? gw + gap : 0f);
+            boolean hasGlyph = glyphs != null && glyphs[i] > 0f;
+            float gw = hasGlyph ? gh * glyphs[i] : 0f;
+            float total = tw + (hasGlyph ? gw + gap : 0f);
             float x = pad + (i + 0.5f) * segW - total / 2f;
-            if (glyphs != null) {
+            if (hasGlyph) {
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(Ui.dp(c, 2));
                 rect.set(x + Ui.dp(c, 1), h / 2 - gh / 2 + Ui.dp(c, 1),
