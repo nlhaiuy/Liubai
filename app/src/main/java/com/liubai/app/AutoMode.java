@@ -66,6 +66,7 @@ public final class AutoMode {
             "com.duowan.kiwi",               // 虎牙
             "com.netease.cc",                // 网易CC
             "tv.twitch.android.app",         // Twitch
+            "net.quetta.browser",            // Quetta 浏览器
             // —— 更多国内视频 ——
             "com.sohu.sohuvideo",            // 搜狐视频
             "com.baidu.haokan",              // 好看视频

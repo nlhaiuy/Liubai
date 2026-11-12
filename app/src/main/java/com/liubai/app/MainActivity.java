@@ -156,7 +156,6 @@ public class MainActivity extends Activity {
         buildModeRow(card);
         buildRatioRow(card);
         buildStrengthRow(card);
-        buildPortraitRow(card);
 
         // 底部渐隐，让大开关浮在内容上面
         View fade = new View(this);
@@ -411,11 +410,15 @@ public class MainActivity extends Activity {
         s.addView(labelRow("视频比例", null));
 
         float cur = sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
-        int sel = Math.abs(RATIO_VALUES[1] - cur) < 0.001f ? 1 : 0;
+        boolean portrait = sp.getBoolean(MaskService.KEY_PORTRAIT, false);
+        int sel = portrait ? 2 : Math.abs(RATIO_VALUES[1] - cur) < 0.001f ? 1 : 0;
         if (sel == 0) sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[0]).apply();
-        Segmented seg = new Segmented(this, new String[]{"16:9", "4:3"}, sel, RATIO_VALUES);
+        Segmented seg = new Segmented(this, new String[]{"16:9", "4:3", "竖屏"}, sel,
+                new float[]{16f / 9f, 4f / 3f, 9f / 16f});
         seg.setOnSelect(i -> {
-            sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[i]).apply();
+            // 竖屏 = 竖屏播放 16:9 视频，盖上下黑边；横屏仍按 16:9
+            sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[i == 1 ? 1 : 0])
+                    .putBoolean(MaskService.KEY_PORTRAIT, i == 2).apply();
             preview.ratioChanged();
             applyRange();
             int cur2 = sp.getInt(MaskService.KEY_OFFSET, 0);
@@ -439,21 +442,6 @@ public class MainActivity extends Activity {
         Segmented seg = new Segmented(this, new String[]{"标准", "加强"}, curLayers >= 2 ? 1 : 0);
         seg.setOnSelect(i -> {
             sp.edit().putInt(MaskService.KEY_LAYERS, STRENGTH_LAYERS[i]).apply();
-            changed();
-        });
-        Ui.press(seg, 0.985f);
-        s.addView(seg, below());
-    }
-
-    /** 竖屏遮罩：竖屏播放（视频撑满宽度、上下居中）时，把上下的黑边盖成白色。默认关闭。 */
-    private void buildPortraitRow(LinearLayout card) {
-        LinearLayout s = section(card, false);
-        s.addView(labelRow("竖屏遮罩（盖上下黑边）", null));
-
-        Segmented seg = new Segmented(this, new String[]{"关闭", "开启"},
-                sp.getBoolean(MaskService.KEY_PORTRAIT, false) ? 1 : 0);
-        seg.setOnSelect(i -> {
-            sp.edit().putBoolean(MaskService.KEY_PORTRAIT, i == 1).apply();
             changed();
         });
         Ui.press(seg, 0.985f);
