@@ -192,9 +192,16 @@ public class MaskService extends Service {
             if (builtA != a || builtB != b) {
                 for (View v : bars) {
                     try {
-                        int t = Boolean.TRUE.equals(v.getTag()) ? a : b;
+                        boolean first = Boolean.TRUE.equals(v.getTag());
+                        int t = first ? a : b;
                         WindowManager.LayoutParams lp = (WindowManager.LayoutParams) v.getLayoutParams();
-                        if (portrait) lp.height = t; else lp.width = t;
+                        if (portrait) {
+                            lp.height = t;
+                            if (!first) lp.y = h - t;
+                        } else {
+                            lp.width = t;
+                            if (!first) lp.x = w - t;
+                        }
                         wm.updateViewLayout(v, lp);
                     } catch (Exception ignored) { }
                 }
@@ -282,9 +289,8 @@ public class MaskService extends Service {
     private View addBar(boolean portrait, boolean first, int bar, int sw, int sh) {
         int width = portrait ? sw : bar;
         int height = portrait ? bar : sh;
-        int gravity = portrait
-                ? (first ? Gravity.TOP : Gravity.BOTTOM) | Gravity.START
-                : Gravity.TOP | (first ? Gravity.START : Gravity.END);
+        // 一律从屏幕左上角起算再偏移：贴底 / 贴右对齐会把导航条那一截排除在外，遮罩会整体偏一点
+        int gravity = Gravity.TOP | Gravity.START;
         View v = new View(this);
         v.setTag(first);   // 原地改厚度时要区分是哪一侧
         v.setBackgroundColor(Color.WHITE);
@@ -299,8 +305,8 @@ public class MaskService extends Service {
                 PixelFormat.OPAQUE);
         lp.gravity = gravity;
         lp.alpha = 0f;
-        lp.x = 0;
-        lp.y = 0;
+        lp.x = (!portrait && !first) ? sw - bar : 0;
+        lp.y = (portrait && !first) ? sh - bar : 0;
         lp.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         wm.addView(v, lp);
