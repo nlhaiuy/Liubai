@@ -28,8 +28,20 @@ public class PreviewView extends View {
     private float shownRatio;          // 正在显示的画幅（切换 16:9 / 4:3 时平滑过渡）
     private ValueAnimator ratioAnim;
 
-    /** 竖屏演示屏的高度（dp）。 */
+    /** 竖屏演示屏的默认高度（dp）；主页会按横屏那张卡的大小传入合适的高度，见 setPortraitHeightPx。 */
     private static final int PORTRAIT_H = 210;
+    private float portraitHPx = 0f;
+
+    /** 竖屏演示屏的高度（px）。小手机跟微调并排放在一行，所以高度由主页按横屏那张卡的大小算好传进来。 */
+    public void setPortraitHeightPx(float px) {
+        portraitHPx = px;
+        requestLayout();
+        invalidate();
+    }
+
+    private float portraitH() {
+        return portraitHPx > 0f ? portraitHPx : Ui.dp(getContext(), PORTRAIT_H);
+    }
 
     public PreviewView(Context c) {
         super(c);
@@ -84,9 +96,13 @@ public class PreviewView extends View {
     }
 
     /** 用真实屏幕的比例，小窗 / 分屏时也和真正的遮罩一致。 */
-    private float aspect() {
-        float[] s = Ui.realScreen(getContext());
+    static float aspect(Context c) {
+        float[] s = Ui.realScreen(c);
         return Math.max(16f / 9f, Math.min(2.4f, s[0] / s[1]));
+    }
+
+    private float aspect() {
+        return aspect(getContext());
     }
 
     /** 演示屏的尺寸：{宽, 高}（px，不含阴影留白）。 */
@@ -95,7 +111,7 @@ public class PreviewView extends View {
         float[] scr = Ui.realScreen(c);
         float areaW = getWidth() - 2 * Ui.dp(c, PAD_X);
         if (portrait()) {
-            float sh = Ui.dp(c, PORTRAIT_H);
+            float sh = portraitH();
             return new float[]{sh * scr[1] / scr[0], sh};
         }
         return new float[]{areaW, areaW / aspect()};
@@ -104,10 +120,18 @@ public class PreviewView extends View {
     @Override
     protected void onMeasure(int w, int h) {
         Context c = getContext();
+        if (portrait()) {
+            // 竖屏：只有一只小手机，宽度跟着手机走（旁边是微调），不撑满整行
+            float[] scr = Ui.realScreen(c);
+            float sh = portraitH();
+            float sw = sh * scr[1] / scr[0];
+            setMeasuredDimension(Math.round(sw + 2 * Ui.dp(c, PAD_X)),
+                    Math.round(sh + Ui.dp(c, PAD_T + PAD_B)));
+            return;
+        }
         int width = MeasureSpec.getSize(w);
         float inner = width - 2 * Ui.dp(c, PAD_X);
-        float screenH = portrait() ? Ui.dp(c, PORTRAIT_H) : inner / aspect();
-        setMeasuredDimension(width, Math.round(screenH + Ui.dp(c, PAD_T + PAD_B)));
+        setMeasuredDimension(width, Math.round(inner / aspect() + Ui.dp(c, PAD_T + PAD_B)));
     }
 
     @Override

@@ -58,10 +58,12 @@ public class MainActivity extends Activity {
     private PreviewView preview;
     private boolean editPortrait;                   // 设置页当前在编辑竖屏还是横屏
     private Segmented segL, segP;                   // 横屏比例 / 竖屏位置
+    private LinearLayout stage, side;               // 演示卡内部：屏幕那一块 + 微调那一块
+    private FrameLayout shot;
     private TextView ratioTitle;                    // “视频比例” / “视频位置”标题
     private TextView modeTitle;                     // “生效范围”标题（竖屏时带“· 竖屏”）
     private Segmented playSeg;                      // 显示时机：始终显示 / 仅播放时
-    private TextView playHint;                      // 显示时机下面的说明 + 当前识别方式
+    private TextView playHint;                      // 显示时机右边的识别方式名
     private LinearLayout settingsCard;
     private LinearLayout.LayoutParams settingsLp;   // 设置卡的上边距：授权卡显示时 12dp，收起时补回 16dp
     private PowerButton power;
@@ -251,15 +253,22 @@ public class MainActivity extends Activity {
         parent.addView(head, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
-    /** 演示卡：屏幕在上，下面一行 − 滑条 +；屏幕右上角在微调不为 0 时出现“归零”。 */
+    /**
+     * 演示卡。横屏：屏幕在上，下面一行 − 滑条 +。
+     * 竖屏：一只小手机在左，右边是 − 滑条 +，横向并排，整张卡和横屏那张一样高（切换时页面不跳）。
+     * 微调不为 0 时，卡片右上角出现“归零”。
+     */
     private void buildStage(LinearLayout parent) {
-        LinearLayout stage = new LinearLayout(this);
-        stage.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout host = new FrameLayout(this);   // 白色卡片本体；归零按钮挂在它的右上角
+        Ui.card(host, 28);
+        stage = new LinearLayout(this);
         stage.setPadding(dp(12), dp(12), dp(12), dp(12));
-        Ui.card(stage, 28);
+        host.addView(stage, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        FrameLayout shot = new FrameLayout(this);
+        shot = new FrameLayout(this);
         preview = new PreviewView(this);
+        preview.setPortraitHeightPx(portraitScreenHeightPx());
         FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         // 预览控件四周留了画阴影的空间，用负边距抵消，屏幕本身仍和卡片内边距对齐
@@ -285,9 +294,8 @@ public class MainActivity extends Activity {
         Ui.press(resetBtn, 0.9f);
         FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(dp(44), dp(44),
                 Gravity.TOP | Gravity.END);
-        rlp.setMargins(0, dp(4), dp(4), 0);
-        shot.addView(resetBtn, rlp);
-        stage.addView(shot, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        rlp.setMargins(0, dp(16), dp(16), 0);   // 卡片内边距 12dp + 4dp，和原来挂在屏幕右上角时的位置一致
+        host.addView(resetBtn, rlp);
 
         LinearLayout fine = new LinearLayout(this);
         fine.setOrientation(LinearLayout.HORIZONTAL);
@@ -314,12 +322,44 @@ public class MainActivity extends Activity {
         slp.setMargins(dp(2), 0, dp(2), 0);
         fine.addView(slider, slp);
         fine.addView(plus, lp(dp(44), dp(44)));
-        stage.addView(fine, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        side = new LinearLayout(this);          // 微调这一行：横屏在屏幕下面，竖屏在小手机右边
+        side.setOrientation(LinearLayout.VERTICAL);
+        side.setGravity(Gravity.CENTER_VERTICAL);
+        side.addView(fine, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        stage.addView(shot);
+        stage.addView(side);
+        updateStageLayout();
 
         LinearLayout.LayoutParams sgp = lp(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         sgp.topMargin = dp(land ? 12 : 18);
-        parent.addView(stage, sgp);
+        parent.addView(host, sgp);
+    }
+
+    /** 竖屏演示屏的高度：让整张卡和横屏那张一样高（横屏那张的屏幕高度 + 竖屏把微调那一行的高度让给手机）。 */
+    private float portraitScreenHeightPx() {
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        float containerW = land ? screenW * 0.46f : screenW;          // 左栏 / 整屏宽度
+        float inner = containerW - dp(land ? 20 + 8 : 20 + 20) - dp(24);   // 减去页边距和卡片内边距 = 横屏演示屏的宽度
+        return inner / PreviewView.aspect(this) + dp(44);
+    }
+
+    /** 横屏：屏幕在上、微调在下；竖屏：小手机在左、微调在右。 */
+    private void updateStageLayout() {
+        boolean compact = editPortrait;
+        stage.setOrientation(compact ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        stage.setGravity(compact ? Gravity.CENTER_VERTICAL : Gravity.NO_GRAVITY);
+        if (compact) {
+            shot.setLayoutParams(lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            LinearLayout.LayoutParams slp = lp(0, ViewGroup.LayoutParams.WRAP_CONTENT);
+            slp.weight = 1f;
+            slp.leftMargin = dp(10);
+            side.setLayoutParams(slp);
+        } else {
+            shot.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            side.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
     }
 
     /** −/+：点一下 ±1dp，按住不放则先慢后快地连续调。 */
@@ -443,7 +483,16 @@ public class MainActivity extends Activity {
     /** 显示时机：白名单软件里一直显示，或者只在它真的在播放时显示（用不用 Shizuku 都行，有就更准）。 */
     private void buildPlayRow(LinearLayout card) {
         LinearLayout s = section(card, false);
-        s.addView(labelRow("显示时机", null));
+        // 右边只放当前识别方式的名字（Shizuku / 媒体会话 / 系统音频），“始终显示”时不显示；
+        // 行高和上面“生效范围”那一行一样，版面不跳
+        playHint = link("");
+        LinearLayout.LayoutParams lrp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lrp.topMargin = -dp(10);
+        lrp.bottomMargin = -dp(10);
+        LinearLayout lr = labelRow("显示时机", playHint);
+        lr.setMinimumHeight(dp(44));
+        s.addView(lr, lrp);
 
         playSeg = new Segmented(this, new String[]{"始终显示", "仅播放时"},
                 AutoMode.isPlayOnly(this) ? 1 : 0);
@@ -455,38 +504,19 @@ public class MainActivity extends Activity {
         });
         Ui.press(playSeg, 0.985f);
         s.addView(playSeg, below());
-
-        playHint = new TextView(this);
-        playHint.setTextSize(12);
-        playHint.setTextColor(Ui.DIM);
-        playHint.setLineSpacing(0f, 1.15f);
-        LinearLayout.LayoutParams hp = lp(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hp.topMargin = dp(10);
-        s.addView(playHint, hp);
     }
 
-    /** 说明文字：没开就讲用法；开了就说当前用哪种方式识别播放。 */
+    /** 显示时机右边的识别方式名：开了“仅播放时”才显示；没开时留空（占位不变）。 */
     private void refreshPlayHint() {
         if (playHint == null) return;
-        boolean on = AutoMode.isPlayOnly(this);
-        String t;
-        if (!on) {
-            t = "白名单软件里一直显示；选“仅播放时”则只在它播放时显示，暂停后几秒收起。";
-        } else {
-            switch (PlaybackDetector.level()) {
-                case 3:
-                    t = "识别方式：Shizuku，能精确知道是哪个软件在播放。";
-                    break;
-                case 2:
-                    t = "识别方式：媒体会话，能知道各软件是否在播放；没有媒体会话的软件只能判断有没有声音。";
-                    break;
-                default:
-                    t = "识别方式：系统音频，只能判断手机有没有声音在播。授权下面的“通知使用权”或 Shizuku 可以更准。";
-            }
-            t += "无声视频识别不到。";
+        if (!AutoMode.isPlayOnly(this)) {
+            playHint.setText("");
+            return;
         }
-        playHint.setText(t);
+        int level = PlaybackDetector.level();
+        playHint.setText(level == 3 ? "Shizuku" : level == 2 ? "媒体会话" : "系统音频");
+        playHint.setTextColor(Ui.PRI);
+        playHint.setTypeface(Typeface.DEFAULT_BOLD);
     }
 
     /**
@@ -548,6 +578,7 @@ public class MainActivity extends Activity {
 
     /** 切到横屏 / 竖屏：微调、演示屏、微调、演示屏都换成对应一侧的设置。 */
     private void onTabChanged() {
+        updateStageLayout();
         updateModeUi();
         applyRange();
         int off = Math.max(slider.getMin(), Math.min(Slider.MAX, sp.getInt(offKey(), 0)));
