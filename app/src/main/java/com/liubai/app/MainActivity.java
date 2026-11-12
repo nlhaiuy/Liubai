@@ -156,6 +156,7 @@ public class MainActivity extends Activity {
         buildModeRow(card);
         buildRatioRow(card);
         buildStrengthRow(card);
+        buildPortraitRow(card);
 
         // 底部渐隐，让大开关浮在内容上面
         View fade = new View(this);
@@ -438,6 +439,21 @@ public class MainActivity extends Activity {
         Segmented seg = new Segmented(this, new String[]{"标准", "加强"}, curLayers >= 2 ? 1 : 0);
         seg.setOnSelect(i -> {
             sp.edit().putInt(MaskService.KEY_LAYERS, STRENGTH_LAYERS[i]).apply();
+            changed();
+        });
+        Ui.press(seg, 0.985f);
+        s.addView(seg, below());
+    }
+
+    /** 竖屏遮罩：竖屏播放（视频撑满宽度、上下居中）时，把上下的黑边盖成白色。默认关闭。 */
+    private void buildPortraitRow(LinearLayout card) {
+        LinearLayout s = section(card, false);
+        s.addView(labelRow("竖屏遮罩（盖上下黑边）", null));
+
+        Segmented seg = new Segmented(this, new String[]{"关闭", "开启"},
+                sp.getBoolean(MaskService.KEY_PORTRAIT, false) ? 1 : 0);
+        seg.setOnSelect(i -> {
+            sp.edit().putBoolean(MaskService.KEY_PORTRAIT, i == 1).apply();
             changed();
         });
         Ui.press(seg, 0.985f);

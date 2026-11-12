@@ -25,7 +25,7 @@ import java.util.Set;
  *  - 总开关（底部大按钮）关闭 → 任何地方都不显示留白。
  *  - 总开关开启 + 白名单模式开启 → 只在白名单里的软件中显示（靠无障碍服务识别前台软件）。
  *  - 总开关开启 + 白名单模式关闭 → 全局模式：横屏时始终显示。
- * 横屏才显示、竖屏自动隐藏，由 MaskService 自己负责。
+ * 横屏显示左右遮罩；竖屏默认隐藏，开启“竖屏遮罩”后显示上下遮罩，由 MaskService 自己负责。
  */
 public final class AutoMode {
     public static final String KEY_MASTER = "master"; // 总开关
@@ -269,7 +269,12 @@ public final class AutoMode {
         return !f.isEmpty()                         // 白名单模式开：只在白名单软件里，且横屏才启动服务
                 && isSelected(c, f)
                 && isScreenActive(c)
-                && isLandscape(c);                  // 竖屏不启动，也就没有通知（旋转由无障碍服务触发重新判断）
+                && (isLandscape(c) || isPortraitMask(c)); // 竖屏且没开竖屏遮罩时不启动，也就没有通知（旋转由无障碍服务触发重新判断）
+    }
+
+    /** 是否开启了“竖屏遮罩”（竖屏播放 16:9 视频时盖住上下黑边）。 */
+    static boolean isPortraitMask(Context c) {
+        return prefs(c).getBoolean(MaskService.KEY_PORTRAIT, false);
     }
 
     /** 和 MaskService 用同一种算法：真实屏幕宽 > 高才算横屏。 */

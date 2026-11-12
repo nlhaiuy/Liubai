@@ -23,12 +23,13 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 
-/** 在屏幕左右两侧各盖一块白色悬浮窗，遮住横屏视频两边的黑边。 */
+/** 横屏：在屏幕左右两侧各盖一块白色悬浮窗，遮住视频两边的黑边；开启“竖屏遮罩”后，竖屏时改盖上下两侧。 */
 public class MaskService extends Service {
     public static final String PREFS = "mask_prefs";
     public static final String KEY_RATIO = "ratio";   // 视频宽高比，默认 16/9
     public static final String KEY_OFFSET = "offset"; // 微调(dp)，正数=遮罩变宽
     public static final String KEY_LAYERS = "layers"; // 每侧叠几层：1=标准，3=加强
+    public static final String KEY_PORTRAIT = "portrait"; // 竖屏遮罩：竖屏播放 16:9 视频时盖住上下的黑边
     public static final float DEFAULT_RATIO = 16f / 9f;
     public static final int DEFAULT_LAYERS = 1;
     public static final int MAX_LAYERS = 6;
@@ -43,7 +44,8 @@ public class MaskService extends Service {
 
     private WindowManager wm;
     private final java.util.List<View> bars = new java.util.ArrayList<>();
-    private int builtW, builtH, builtLayers;    // 当前这批遮罩是按什么尺寸建的
+    private int builtW, builtH, builtSW, builtLayers; // 当前这批遮罩是按什么尺寸建的（builtW=遮罩厚度，builtSW=屏幕宽）
+    private boolean builtPortrait;
     private boolean notifActive = false;        // 通知当前是不是“遮罩已开启”
 
     @Override
@@ -141,33 +143,39 @@ public class MaskService extends Service {
         DisplayMetrics m = new DisplayMetrics();
         d.getRealMetrics(m);
         int w = m.widthPixels, h = m.heightPixels;
-        if (w <= h) {            // 竖屏不需要遮罩
+        boolean portrait = w <= h;
+
+        SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (portrait && !sp.getBoolean(KEY_PORTRAIT, false)) {   // 竖屏遮罩没开：不需要遮罩
             removeViews(false);
             goIdle();
             return;
         }
 
-        SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
         float ratio = sp.getFloat(KEY_RATIO, DEFAULT_RATIO);
         int layers = Math.max(1, Math.min(MAX_LAYERS, sp.getInt(KEY_LAYERS, DEFAULT_LAYERS)));
         int offsetPx = Math.round(sp.getInt(KEY_OFFSET, 0) * m.density);
 
-        int bar = Math.round((w - h * ratio) / 2f) + offsetPx;
-        bar = Math.max(0, Math.min(bar, w / 2));
+        // 横屏：左右两条，宽 = (屏幕宽 − 屏幕高×比例) / 2
+        // 竖屏：上下两条，高 = (屏幕高 − 屏幕宽÷比例) / 2（视频撑满屏幕宽度、上下居中）
+        int bar = portrait
+                ? Math.round((h - w / ratio) / 2f) + offsetPx
+                : Math.round((w - h * ratio) / 2f) + offsetPx;
+        bar = Math.max(0, Math.min(bar, portrait ? h / 2 : w / 2));
         if (bar == 0) {
             removeViews(false);
             goIdle();
             return;
         }
 
-        // 屏幕高度没变：宽度原地改；层数变了只加 / 减多出来的那几层，原来的不拆
+        // 屏幕尺寸和朝向没变：厚度原地改；层数变了只加 / 减多出来的那几层，原来的不拆
         // （标准 ⇄ 加强 切换时才不会闪一下黑边）
-        if (!bars.isEmpty() && builtH == h) {
+        if (!bars.isEmpty() && builtH == h && builtSW == w && builtPortrait == portrait) {
             if (builtW != bar) {
                 for (View v : bars) {
                     try {
                         WindowManager.LayoutParams lp = (WindowManager.LayoutParams) v.getLayoutParams();
-                        lp.width = bar;
+                        if (portrait) lp.height = bar; else lp.width = bar;
                         wm.updateViewLayout(v, lp);
                     } catch (Exception ignored) { }
                 }
@@ -177,12 +185,12 @@ public class MaskService extends Service {
             if (have < layers) {
                 java.util.List<View> added = new java.util.ArrayList<>();
                 for (int i = have; i < layers; i++) {
-                    View l = addBar(Gravity.TOP | Gravity.START, bar, h);
-                    View r = addBar(Gravity.TOP | Gravity.END, bar, h);
-                    bars.add(l);
-                    bars.add(r);
-                    added.add(l);
-                    added.add(r);
+                    View a = addBar(portrait, true, bar, w, h);
+                    View b = addBar(portrait, false, bar, w, h);
+                    bars.add(a);
+                    bars.add(b);
+                    added.add(a);
+                    added.add(b);
                 }
                 builtLayers = layers;
                 fade(added, 0f, 1f, FADE_IN_MS, false);
@@ -199,11 +207,13 @@ public class MaskService extends Service {
 
         removeViews(false);
         for (int i = 0; i < layers; i++) {
-            bars.add(addBar(Gravity.TOP | Gravity.START, bar, h));
-            bars.add(addBar(Gravity.TOP | Gravity.END, bar, h));
+            bars.add(addBar(portrait, true, bar, w, h));
+            bars.add(addBar(portrait, false, bar, w, h));
         }
         builtW = bar;
         builtH = h;
+        builtSW = w;
+        builtPortrait = portrait;
         builtLayers = layers;
         fade(new java.util.ArrayList<>(bars), 0f, 1f, FADE_IN_MS, false);
         setNotificationActive(true);   // 遮罩已经加到屏幕上了，才显示“已开启”
@@ -242,7 +252,13 @@ public class MaskService extends Service {
         a.start();
     }
 
-    private View addBar(int gravity, int width, int height) {
+    /** first=true：横屏的左边 / 竖屏的上边；false：右边 / 下边。bar=遮罩厚度，sw/sh=屏幕宽高。 */
+    private View addBar(boolean portrait, boolean first, int bar, int sw, int sh) {
+        int width = portrait ? sw : bar;
+        int height = portrait ? bar : sh;
+        int gravity = portrait
+                ? (first ? Gravity.TOP : Gravity.BOTTOM) | Gravity.START
+                : Gravity.TOP | (first ? Gravity.START : Gravity.END);
         View v = new View(this);
         v.setBackgroundColor(Color.WHITE);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
@@ -275,7 +291,7 @@ public class MaskService extends Service {
             }
         }
         bars.clear();
-        builtW = builtH = builtLayers = 0;
+        builtW = builtH = builtSW = builtLayers = 0;
     }
 
     @Override
