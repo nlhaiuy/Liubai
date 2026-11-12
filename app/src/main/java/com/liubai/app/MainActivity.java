@@ -413,7 +413,7 @@ public class MainActivity extends Activity {
         boolean portrait = sp.getBoolean(MaskService.KEY_PORTRAIT, false);
         int sel = portrait ? 2 : Math.abs(RATIO_VALUES[1] - cur) < 0.001f ? 1 : 0;
         if (sel == 0) sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[0]).apply();
-        Segmented seg = new Segmented(this, new String[]{"16:9", "4:3", "竖屏"}, sel,
+        Segmented seg = new Segmented(this, new String[]{"16:9", "4:3", "竖 16:9"}, sel,
                 new float[]{16f / 9f, 4f / 3f, 9f / 16f});
         seg.setOnSelect(i -> {
             // 竖屏 = 竖屏播放 16:9 视频，盖上下黑边；横屏仍按 16:9

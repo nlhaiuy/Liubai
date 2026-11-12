@@ -93,8 +93,9 @@ public class Segmented extends View {
         paint.setTextSize(Ui.sp(c, 15));
         paint.setTextAlign(Paint.Align.LEFT);
         float ty = h / 2 - (paint.ascent() + paint.descent()) / 2;
-        float gh = Ui.dp(c, 12), gap = Ui.dp(c, 8);
+        float gap = Ui.dp(c, 8);
         for (int i = 0; i < labels.length; i++) {
+            float gh = glyphs != null && glyphs[i] < 1f ? Ui.dp(c, 17) : Ui.dp(c, 12); // 竖向图标画高一点，免得像个“0”
             float near = 1f - Math.min(1f, Math.abs(i - pos));
             int color = Ui.blend(Ui.DIM, 0xFFFFFFFF, near);
             paint.setColor(color);
