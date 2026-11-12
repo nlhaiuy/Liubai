@@ -59,14 +59,17 @@ public class MainActivity extends Activity {
     private boolean editPortrait;                   // 设置页当前在编辑竖屏还是横屏
     private Segmented segL, segP;                   // 横屏比例 / 竖屏位置
     private TextView ratioTitle;                    // “视频比例” / “视频位置”标题
+    private TextView modeTitle;                     // “生效范围”标题（竖屏时带“· 竖屏”）
+    private Segmented playSeg;                      // 显示时机：始终显示 / 仅播放时
+    private TextView playHint;                      // 显示时机下面的说明 + 当前识别方式
     private LinearLayout settingsCard;
     private LinearLayout.LayoutParams settingsLp;   // 设置卡的上边距：授权卡显示时 12dp，收起时补回 16dp
     private PowerButton power;
     private Slider slider;
     private final Handler repeat = new Handler(Looper.getMainLooper());
 
-    // 权限：0 悬浮窗、1 通知、2 后台运行、3 无障碍
-    private static final String[] PERM_NAMES = {"悬浮窗", "通知", "后台运行", "无障碍"};
+    // 权限：0 悬浮窗、1 通知、2 后台运行、3 无障碍；4 通知使用权、5 Shizuku（只在“仅播放时显示”下可选）
+    private static final String[] PERM_NAMES = {"悬浮窗", "通知", "后台运行", "无障碍", "通知使用权", "Shizuku"};
     private boolean awaitingA11y = false;
 
     private int dp(float v) { return Math.round(v * density); }
@@ -166,6 +169,7 @@ public class MainActivity extends Activity {
         col.addView(card, clp);
 
         buildModeRow(card);
+        buildPlayRow(card);
         buildRatioRow(card);
         buildStrengthRow(card);
 
@@ -411,7 +415,9 @@ public class MainActivity extends Activity {
     private void buildModeRow(LinearLayout card) {
         LinearLayout s = section(card, true);
         appsLink = link("");
-        appsLink.setOnClickListener(v -> startActivity(new Intent(this, AppPickerActivity.class)));
+        // 横屏、竖屏各一份白名单：当前在编辑哪一侧（底部大按钮切换），就打开哪一份
+        appsLink.setOnClickListener(v -> startActivity(new Intent(this, AppPickerActivity.class)
+                .putExtra(AppPickerActivity.EXTRA_PORTRAIT, editPortrait)));
         Ui.press(appsLink, 0.94f);
         // 这一行至少 44dp 高，比文字大一圈都能点到；用负边距抵消，版面不变
         LinearLayout.LayoutParams lrp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -419,6 +425,7 @@ public class MainActivity extends Activity {
         lrp.topMargin = -dp(10);
         lrp.bottomMargin = -dp(10);
         LinearLayout lr = labelRow("生效范围", appsLink);
+        modeTitle = (TextView) lr.getChildAt(0);
         lr.setMinimumHeight(dp(44));
         s.addView(lr, lrp);
 
@@ -431,6 +438,55 @@ public class MainActivity extends Activity {
         });
         Ui.press(seg, 0.985f);
         s.addView(seg, below());
+    }
+
+    /** 显示时机：白名单软件里一直显示，或者只在它真的在播放时显示（用不用 Shizuku 都行，有就更准）。 */
+    private void buildPlayRow(LinearLayout card) {
+        LinearLayout s = section(card, false);
+        s.addView(labelRow("显示时机", null));
+
+        playSeg = new Segmented(this, new String[]{"始终显示", "仅播放时"},
+                AutoMode.isPlayOnly(this) ? 1 : 0);
+        playSeg.setOnSelect(i -> {
+            sp.edit().putBoolean(AutoMode.KEY_PLAY_ONLY, i == 1).apply();
+            AutoMode.evaluate(this);   // 立刻开启 / 关闭播放检测并重新判断
+            refreshPerms();            // “可选”里的通知使用权、Shizuku 跟着出现 / 收起
+            refreshPlayHint();
+        });
+        Ui.press(playSeg, 0.985f);
+        s.addView(playSeg, below());
+
+        playHint = new TextView(this);
+        playHint.setTextSize(12);
+        playHint.setTextColor(Ui.DIM);
+        playHint.setLineSpacing(0f, 1.15f);
+        LinearLayout.LayoutParams hp = lp(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(10);
+        s.addView(playHint, hp);
+    }
+
+    /** 说明文字：没开就讲用法；开了就说当前用哪种方式识别播放。 */
+    private void refreshPlayHint() {
+        if (playHint == null) return;
+        boolean on = AutoMode.isPlayOnly(this);
+        String t;
+        if (!on) {
+            t = "白名单软件里一直显示；选“仅播放时”则只在它播放时显示，暂停后几秒收起。";
+        } else {
+            switch (PlaybackDetector.level()) {
+                case 3:
+                    t = "识别方式：Shizuku，能精确知道是哪个软件在播放。";
+                    break;
+                case 2:
+                    t = "识别方式：媒体会话，能知道各软件是否在播放；没有媒体会话的软件只能判断有没有声音。";
+                    break;
+                default:
+                    t = "识别方式：系统音频，只能判断手机有没有声音在播。授权下面的“通知使用权”或 Shizuku 可以更准。";
+            }
+            t += "无声视频识别不到。";
+        }
+        playHint.setText(t);
     }
 
     /**
@@ -498,6 +554,7 @@ public class MainActivity extends Activity {
         slider.setValue(off);
         showOffset(off, false);
         preview.tabChanged();
+        refreshAuto();   // 白名单入口也是横屏 / 竖屏各一份，数量和标题跟着换
     }
 
     private void buildStrengthRow(LinearLayout card) {
@@ -554,6 +611,7 @@ public class MainActivity extends Activity {
         super.onPause();
         repeat.removeCallbacksAndMessages(null);
         AutoAccessibilityService.onStateChanged = null;
+        PlaybackDetector.onStateChanged = null;
     }
 
     @Override
@@ -569,6 +627,11 @@ public class MainActivity extends Activity {
             }
         }
         AutoAccessibilityService.onStateChanged = () -> runOnUiThread(this::refreshPerms);
+        // Shizuku 连上 / 授权、通知使用权变化时，刷新“可选”授权和识别方式说明
+        PlaybackDetector.onStateChanged = () -> runOnUiThread(() -> {
+            refreshPerms();
+            refreshPlayHint();
+        });
         AutoMode.evaluate(this);   // 重启后总开关还是开着，但遮罩没在运行：这里补上
         updateUi(false);
         refreshAuto();
@@ -593,6 +656,9 @@ public class MainActivity extends Activity {
     /** 白名单入口：只在白名单模式显示，位置不变所以界面不跳动。 */
     private void refreshAuto() {
         boolean whitelist = AutoMode.isEnabled(this);
+        modeTitle.setText(editPortrait ? "生效范围 · 竖屏" : "生效范围 · 横屏");
+        if (playSeg != null) playSeg.setAlpha(whitelist ? 1f : 0.4f);   // 全局模式下没有“哪个软件”可言，仅白名单生效
+        refreshPlayHint();
         int n = installedSelectedCount();
         android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder();
         if (n == 0) {                     // 白名单模式下一个都没选 = 哪里都不显示，用橙色提醒
@@ -622,7 +688,7 @@ public class MainActivity extends Activity {
     private int installedSelectedCount() {
         PackageManager pm = getPackageManager();
         int n = 0;
-        for (String pkg : AutoMode.selectedApps(this)) {
+        for (String pkg : AutoMode.selectedApps(this, editPortrait)) {
             if (pm.getLaunchIntentForPackage(pkg) != null) n++;
         }
         return n;
@@ -704,6 +770,7 @@ public class MainActivity extends Activity {
     private boolean applicable(int i) {
         if (i == 1) return Build.VERSION.SDK_INT >= 33;
         if (i == 3) return AutoMode.isEnabled(this);
+        if (i >= 4) return AutoMode.isEnabled(this) && AutoMode.isPlayOnly(this);   // 通知使用权 / Shizuku
         return true;
     }
 
@@ -718,6 +785,11 @@ public class MainActivity extends Activity {
             case 2:
                 return !((PowerManager) getSystemService(POWER_SERVICE))
                         .isIgnoringBatteryOptimizations(getPackageName());
+            case 4:
+                // Shizuku 已经就绪就不用再要通知使用权了
+                return !PlaybackDetector.listenerEnabled(this) && PlaybackDetector.shizukuState(this) != 3;
+            case 5:
+                return PlaybackDetector.shizukuState(this) != 3;
             default:
                 // 开关是开的但服务没连上（重启 / 更新后常见）也算没开好
                 return !AutoMode.isAccessibilityEnabled(this) || !AutoAccessibilityService.connected;
@@ -878,6 +950,12 @@ public class MainActivity extends Activity {
                         startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
                     }
                     break;
+                case 4:
+                    openListenerSettings();
+                    break;
+                case 5:
+                    openShizuku();
+                    break;
                 default:
                     // 开启成功后，留白会自己跳回前台，不用手动返回
                     AutoAccessibilityService.markReturn(sp);
@@ -917,6 +995,35 @@ public class MainActivity extends Activity {
         list.putExtra(":settings:fragment_args_key", flat);
         list.putExtra(":settings:show_fragment_args", args);
         startActivity(list);
+    }
+
+    /** 通知使用权：Android 11+ 直达“留白”自己的页面，更低版本打开列表。留白不读取任何通知内容。 */
+    private void openListenerSettings() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                Intent direct = new Intent("android.settings.NOTIFICATION_LISTENER_DETAIL_SETTINGS");
+                direct.putExtra("android.provider.extra.NOTIFICATION_LISTENER_COMPONENT_NAME",
+                        new ComponentName(this, PlaybackListenerService.class).flattenToString());
+                startActivity(direct);
+                return;
+            } catch (Exception ignored) { /* 个别系统没有这个页面，退回列表 */ }
+        }
+        startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+    }
+
+    /** Shizuku：没装 → 打开官网；没运行 → 打开 Shizuku 去启动；没授权 → 弹出授权窗口。 */
+    private void openShizuku() {
+        switch (PlaybackDetector.shizukuState(this)) {
+            case 0:
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/")));
+                break;
+            case 1:
+                Intent open = getPackageManager().getLaunchIntentForPackage(PlaybackDetector.SHIZUKU_PKG);
+                if (open != null) startActivity(open);
+                break;
+            default:
+                PlaybackDetector.requestShizukuPermission(this);
+        }
     }
 
     /** 无障碍没开成功：最常见的原因是系统对“非商店安装”的软件置灰了该选项。 */

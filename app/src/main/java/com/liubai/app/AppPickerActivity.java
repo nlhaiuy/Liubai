@@ -49,6 +49,11 @@ import java.util.Set;
  * 顶部有两个快捷操作：勾选推荐应用（常见视频软件）、取消全部勾选（可撤销）。
  */
 public class AppPickerActivity extends Activity {
+    /** true = 编辑竖屏白名单，缺省 / false = 横屏白名单。 */
+    public static final String EXTRA_PORTRAIT = "portrait";
+
+    private boolean portrait;
+
     private static class Item {
         String pkg;
         CharSequence label;
@@ -83,6 +88,7 @@ public class AppPickerActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        portrait = getIntent().getBooleanExtra(EXTRA_PORTRAIT, false);
         density = getResources().getDisplayMetrics().density;
         Ui.lightWindow(this);
         getWindow().setSoftInputMode(
@@ -119,7 +125,7 @@ public class AppPickerActivity extends Activity {
         bar.addView(back, lp(dp(40), dp(40)));
 
         TextView title = new TextView(this);
-        title.setText("白名单");
+        title.setText(portrait ? "竖屏白名单" : "横屏白名单");
         title.setTextSize(28);
         title.setTextColor(Ui.TITLE);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -276,7 +282,7 @@ public class AppPickerActivity extends Activity {
         PackageManager pm = getPackageManager();
         Intent main = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         List<ResolveInfo> ris = pm.queryIntentActivities(main, 0);
-        Set<String> sel = AutoMode.selectedApps(this);
+        Set<String> sel = AutoMode.selectedApps(this, portrait);
         Map<String, Item> map = new HashMap<>();
         for (ResolveInfo ri : ris) {
             String pkg = ri.activityInfo.packageName;
@@ -369,7 +375,7 @@ public class AppPickerActivity extends Activity {
         Set<String> s = new HashSet<>();
         for (Item it : all) if (it.checked) s.add(it.pkg);
         SharedPreferences sp = getSharedPreferences(MaskService.PREFS, Context.MODE_PRIVATE);
-        sp.edit().putStringSet(AutoMode.KEY_APPS, s).apply();
+        sp.edit().putStringSet(portrait ? AutoMode.KEY_APPS_P : AutoMode.KEY_APPS, s).apply();
         updateCount();
     }
 

@@ -25,12 +25,15 @@ import java.util.Set;
  *  - 总开关（底部大按钮）关闭 → 任何地方都不显示留白。
  *  - 总开关开启 + 白名单模式开启 → 只在白名单里的软件中显示（靠无障碍服务识别前台软件）。
  *  - 总开关开启 + 白名单模式关闭 → 全局模式：横屏时始终显示。
+ * 白名单横屏、竖屏各一份；“仅播放时显示”开启后，还要求该软件此刻在播放（见 PlaybackDetector）。
  * 横屏显示左右遮罩；竖屏默认隐藏，开启“竖屏遮罩”后显示上下遮罩，由 MaskService 自己负责。
  */
 public final class AutoMode {
     public static final String KEY_MASTER = "master"; // 总开关
     public static final String KEY_AUTO = "auto";     // 白名单模式：开 = 只在白名单软件里显示；关 = 全局
-    public static final String KEY_APPS = "auto_apps";
+    public static final String KEY_APPS = "auto_apps";      // 横屏白名单（沿用旧版的键，升级不丢设置）
+    public static final String KEY_APPS_P = "auto_apps_p";  // 竖屏白名单：没单独设置过时沿用横屏那份
+    public static final String KEY_PLAY_ONLY = "play_only"; // 仅在播放时显示（白名单模式下生效）
 
     /** 默认白名单：常见视频 / 番剧 / 直播软件（没安装的会被忽略，可在“白名单”页增删）。 */
     public static final String[] DEFAULT_APPS = {
@@ -120,8 +123,9 @@ public final class AutoMode {
             "com.google.android.permissioncontroller",
             "com.android.intentresolver"));
 
-    /** 白名单缓存：每个窗口事件都会判断一次，不必每次都读 SharedPreferences 并拷贝集合。 */
+    /** 白名单缓存（横屏 / 竖屏各一份）：每个窗口事件都会判断一次，不必每次都读 SharedPreferences 并拷贝集合。 */
     private static volatile Set<String> appsCache;
+    private static volatile Set<String> appsCacheP;
     private static SharedPreferences.OnSharedPreferenceChangeListener prefListener;
 
     /** 输入法包名缓存：避免每个事件都跨进程查询输入法列表。 */
@@ -161,26 +165,44 @@ public final class AutoMode {
         return prefs(c).contains(KEY_APPS);
     }
 
+    /** 横屏白名单。 */
     public static Set<String> selectedApps(Context c) {
-        Set<String> s = prefs(c).getStringSet(KEY_APPS, null);
+        return selectedApps(c, false);
+    }
+
+    /** 横屏 / 竖屏白名单。竖屏没单独设置过时沿用横屏那份，所以从旧版升级后行为不变。 */
+    public static Set<String> selectedApps(Context c, boolean portrait) {
+        SharedPreferences sp = prefs(c);
+        Set<String> s = portrait ? sp.getStringSet(KEY_APPS_P, null) : null;
+        if (s == null) s = sp.getStringSet(KEY_APPS, null);
         if (s == null) return new HashSet<>(Arrays.asList(DEFAULT_APPS));
         return new HashSet<>(s);
     }
 
-    /** 当前白名单里是否包含这个包（带缓存，白名单被修改时自动失效）。 */
-    private static boolean isSelected(Context c, String pkg) {
-        Set<String> s = appsCache;
+    /** 当前（横屏 / 竖屏）白名单里是否包含这个包（带缓存，白名单被修改时自动失效）。 */
+    private static boolean isSelected(Context c, String pkg, boolean portrait) {
+        Set<String> s = portrait ? appsCacheP : appsCache;
         if (s == null) {
-            s = selectedApps(c);
-            appsCache = s;
+            s = selectedApps(c, portrait);
+            if (portrait) appsCacheP = s;
+            else appsCache = s;
         }
         return s.contains(pkg);
+    }
+
+    /** 是否设置为“仅在播放时显示”。 */
+    public static boolean isPlayOnly(Context c) {
+        return prefs(c).getBoolean(KEY_PLAY_ONLY, false);
     }
 
     private static void ensureListener(Context c) {
         if (prefListener != null) return;
         prefListener = (sp, key) -> {
-            if (key == null || KEY_APPS.equals(key)) appsCache = null;
+            // 竖屏那份没单独设置时会沿用横屏的，所以横屏变了两份缓存都要作废
+            if (key == null || KEY_APPS.equals(key) || KEY_APPS_P.equals(key)) {
+                appsCache = null;
+                appsCacheP = null;
+            }
         };
         prefs(c).registerOnSharedPreferenceChangeListener(prefListener);
     }
@@ -247,6 +269,8 @@ public final class AutoMode {
     public static void evaluate(Context c) {
         appCtx = c.getApplicationContext();
         ensureListener(appCtx);
+        // 只有“总开关开 + 白名单模式 + 仅播放时显示”才需要监听播放状态，否则整个关掉省电
+        PlaybackDetector.sync(appCtx, isMaster(appCtx) && isEnabled(appCtx) && isPlayOnly(appCtx));
         boolean desired = shouldShow();
         boolean on = MaskService.running || requested;
         if (desired != on) apply(desired);
@@ -267,10 +291,14 @@ public final class AutoMode {
         if (!isMaster(c)) return false;             // 总开关关：全部关闭
         if (!isEnabled(c)) return true;             // 白名单模式关：全局显示
         String f = fg;
-        return !f.isEmpty()                         // 白名单模式开：只在白名单软件里，且横屏才启动服务
-                && isSelected(c, f)
-                && isScreenActive(c)
-                && (isLandscape(c) || isPortraitMask(c)); // 竖屏且没开竖屏遮罩时不启动，也就没有通知（旋转由无障碍服务触发重新判断）
+        if (f.isEmpty() || !isScreenActive(c)) return false;
+        // 白名单模式开：横屏用横屏白名单；竖屏只有开了“竖屏遮罩”才显示，并用竖屏白名单。
+        // 竖屏且没开竖屏遮罩时不启动服务，也就没有通知（旋转由无障碍服务触发重新判断）
+        boolean land = isLandscape(c);
+        if (!land && !isPortraitMask(c)) return false;
+        if (!isSelected(c, f, !land)) return false;
+        // 仅播放时显示：这个软件此刻没在播放（停止后再保持几秒）就收起来
+        return !isPlayOnly(c) || PlaybackDetector.isPlaying(c, f);
     }
 
     /** 是否开启了“竖屏遮罩”（竖屏播放 16:9 视频时盖住上下黑边）。 */

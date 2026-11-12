@@ -34,4 +34,13 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    buildFeatures {
+        aidl true   // Shizuku 用户服务的接口 IShellService.aidl
+    }
+}
+
+dependencies {
+    // 可选的“精确识别播放”：Shizuku 没装 / 没运行时自动退回媒体会话和系统音频
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
 }
