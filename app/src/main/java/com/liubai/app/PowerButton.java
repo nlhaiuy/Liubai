@@ -9,9 +9,10 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.widget.TextView;
 
-/** 总开关：关着时是蓝色渐变的“开启遮罩”，开着时翻成白底蓝边的“关闭遮罩”。 */
+/** 大开关按钮：关着时是蓝色渐变的“开启…”，开着时翻成白底蓝边的“关闭…”（文字可改）。 */
 public class PowerButton extends TextView {
     private float t;            // 0 = 关，1 = 开
+    private String offText = "开启遮罩", onText = "关闭遮罩";
     private ValueAnimator anim;
     private final GradientDrawable bg = new GradientDrawable();
 
@@ -29,10 +30,15 @@ public class PowerButton extends TextView {
         apply();
     }
 
+    public void setLabels(String off, String on) {
+        offText = off;
+        onText = on;
+    }
+
     public void setOn(boolean on, boolean animate) {
         float to = on ? 1f : 0f;
         if (anim != null) anim.cancel();
-        setText(on ? "关闭遮罩" : "开启遮罩");
+        setText(on ? onText : offText);
         if (!animate || !isLaidOut()) { t = to; apply(); return; }
         anim = ValueAnimator.ofFloat(t, to);
         anim.setDuration(300);

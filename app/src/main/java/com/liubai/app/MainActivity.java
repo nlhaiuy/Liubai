@@ -39,7 +39,8 @@ import java.util.List;
 /**
  * 留白主页。
  * 顶部固定：标题 + 演示屏（下面是宽度微调），拖动设置时始终看得到遮罩的变化；
- * 下面单独滚动：授权提示、生效范围 / 视频比例 / 遮盖强度；底部一个大开关。
+ * 下面单独滚动：授权提示、生效范围 / 视频比例（开竖屏遮罩时是视频位置）/ 遮盖强度；
+ * 右上角是总开关，底部大按钮是竖屏遮罩开关。
  * 横屏时左边是演示屏，右边是设置。所有权限都由你手动点“开启”，不会自动跳转。
  */
 public class MainActivity extends Activity {
@@ -51,13 +52,13 @@ public class MainActivity extends Activity {
     private Vibrator vib;
     private boolean land;
 
-    private View dot;
+    private View swTrack, swKnob;                   // 右上角总开关
     private LinearLayout permBox;
     private TextView statusTv, appsLink, resetBtn;
     private PreviewView preview;
     private boolean editPortrait;                   // 设置页当前在编辑竖屏还是横屏
     private Segmented segL, segP;                   // 横屏比例 / 竖屏位置
-    private TextView ratioTitle, modeLink;          // “视频比例”标题和右边的横 / 竖屏切换
+    private TextView ratioTitle;                    // “视频比例” / “视频位置”标题
     private LinearLayout settingsCard;
     private LinearLayout.LayoutParams settingsLp;   // 设置卡的上边距：授权卡显示时 12dp，收起时补回 16dp
     private PowerButton power;
@@ -175,9 +176,10 @@ public class MainActivity extends Activity {
         page.addView(fade, new FrameLayout.LayoutParams(rightW, dp(120),
                 land ? (Gravity.BOTTOM | Gravity.END) : Gravity.BOTTOM));
 
-        // 总开关
+        // 竖屏遮罩开关
         power = new PowerButton(this);
-        power.setOnClickListener(v -> toggle());
+        power.setLabels("开启竖屏遮罩", "关闭竖屏遮罩");   // 底部大按钮 = 竖屏开关
+        power.setOnClickListener(v -> togglePortrait());
         FrameLayout.LayoutParams pwl;
         if (land) {
             pwl = new FrameLayout.LayoutParams(rightW - dp(28), dp(54), Gravity.BOTTOM | Gravity.END);
@@ -213,18 +215,33 @@ public class MainActivity extends Activity {
         tlp.weight = 1f;
         head.addView(title, tlp);
 
+        // 右上角：总开关（点一下开 / 关）
         LinearLayout chip = new LinearLayout(this);
         chip.setOrientation(LinearLayout.HORIZONTAL);
         chip.setGravity(Gravity.CENTER_VERTICAL);
-        chip.setPadding(dp(11), dp(7), dp(13), dp(7));
+        chip.setPadding(dp(14), dp(7), dp(9), dp(7));
         chip.setBackground(Ui.round(Ui.CARD, dp(20)));
+        chip.setContentDescription("总开关");
+        chip.setClickable(true);
+        chip.setOnClickListener(v -> toggle());
+        Ui.press(chip, 0.95f);
         Ui.lift(chip, 3, 0x264F7CFF, 0x404F7CFF);
-        dot = new View(this);
-        chip.addView(dot, lp(dp(10), dp(10)));
         statusTv = new TextView(this);
         statusTv.setTextSize(13);
-        statusTv.setPadding(dp(7), 0, 0, 0);
+        statusTv.setPadding(0, 0, dp(9), 0);
         chip.addView(statusTv);
+        FrameLayout sw = new FrameLayout(this);
+        swTrack = new View(this);
+        sw.addView(swTrack, new FrameLayout.LayoutParams(dp(38), dp(22)));
+        swKnob = new View(this);
+        GradientDrawable kd = new GradientDrawable();
+        kd.setShape(GradientDrawable.OVAL);
+        kd.setColor(0xFFFFFFFF);
+        swKnob.setBackground(kd);
+        FrameLayout.LayoutParams klp = new FrameLayout.LayoutParams(dp(16), dp(16));
+        klp.setMargins(dp(3), dp(3), 0, 0);
+        sw.addView(swKnob, klp);
+        chip.addView(sw, lp(dp(38), dp(22)));
         head.addView(chip, lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         parent.addView(head, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -422,24 +439,9 @@ public class MainActivity extends Activity {
      */
     private void buildRatioRow(LinearLayout card) {
         LinearLayout s = section(card, false);
-        modeLink = link("");
-        modeLink.setTextColor(Ui.PRI);
-        modeLink.setTypeface(Typeface.DEFAULT_BOLD);
-        modeLink.setOnClickListener(v -> {
-            editPortrait = !editPortrait;
-            sp.edit().putBoolean(MaskService.KEY_PORTRAIT, editPortrait).apply();
-            onTabChanged();
-            changed();
-        });
-        Ui.press(modeLink, 0.94f);
-        LinearLayout lr = labelRow("视频比例", modeLink);
+        LinearLayout lr = labelRow("视频比例", null);
         ratioTitle = (TextView) lr.getChildAt(0);
-        lr.setMinimumHeight(dp(44));
-        LinearLayout.LayoutParams lrp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        lrp.topMargin = -dp(10);
-        lrp.bottomMargin = -dp(10);
-        s.addView(lr, lrp);
+        s.addView(lr);
 
         // 横屏
         float cur = sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
@@ -469,8 +471,7 @@ public class MainActivity extends Activity {
 
     /** 标题、链接、两排选项跟着当前是横屏还是竖屏。 */
     private void updateModeUi() {
-        ratioTitle.setText(editPortrait ? "竖屏 · 视频位置" : "视频比例");
-        modeLink.setText(editPortrait ? "切换横屏 ›" : "切换竖屏 ›");
+        ratioTitle.setText(editPortrait ? "视频位置" : "视频比例");
         segL.setVisibility(editPortrait ? View.GONE : View.VISIBLE);
         segP.setVisibility(editPortrait ? View.VISIBLE : View.GONE);
     }
@@ -578,19 +579,14 @@ public class MainActivity extends Activity {
     /** 开 → 演示屏两侧变白、按钮翻白；关 → 变回黑边。 */
     private void updateUi(boolean animate) {
         boolean on = AutoMode.isMaster(this);
-        power.setOn(on, animate);
+        power.setOn(editPortrait, animate);
         preview.setOn(on);
         statusTv.setText(on ? "已开启" : "已关闭");
         statusTv.setTextColor(on ? Ui.INK : Ui.DIM);
-        GradientDrawable g = new GradientDrawable();
-        g.setShape(GradientDrawable.OVAL);
-        if (on) {
-            g.setColor(Ui.GREEN);
-            g.setStroke(dp(2), 0x552EB67D);
-        } else {
-            g.setColor(0xFFC9CCD6);
-        }
-        dot.setBackground(g);
+        swTrack.setBackground(Ui.round(on ? Ui.GREEN : 0xFFC9CCD6, dp(11)));
+        float kx = on ? dp(16) : 0f;
+        if (animate) swKnob.animate().translationX(kx).setDuration(180).start();
+        else swKnob.setTranslationX(kx);
         refreshPerms();
     }
 
@@ -632,7 +628,7 @@ public class MainActivity extends Activity {
         return n;
     }
 
-    // ---------------- 总开关 ----------------
+    // ---------------- 总开关（右上角）/ 竖屏开关（底部） ----------------
 
     /** 关闭 → 全部关闭；开启 → 按“白名单 / 全局”模式显示。没有悬浮窗权限时只提醒，不会自己跳转。 */
     private void toggle() {
@@ -647,6 +643,15 @@ public class MainActivity extends Activity {
         }
         AutoMode.setMaster(this, true);
         updateUi(true);
+    }
+
+    /** 底部大按钮：竖屏遮罩开 / 关。开着时，比例、微调、演示屏都是竖屏那一侧。 */
+    private void togglePortrait() {
+        editPortrait = !editPortrait;
+        sp.edit().putBoolean(MaskService.KEY_PORTRAIT, editPortrait).apply();
+        power.setOn(editPortrait, true);
+        onTabChanged();
+        changed();
     }
 
     /** 提醒：授权卡抖一下 + 一句提示 + 一下短震。 */
