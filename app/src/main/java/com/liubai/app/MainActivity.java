@@ -56,7 +56,8 @@ public class MainActivity extends Activity {
     private TextView statusTv, appsLink, resetBtn;
     private PreviewView preview;
     private boolean editPortrait;                   // 设置页当前在编辑竖屏还是横屏
-    private TextView posHint;                       // 竖屏：拖动画面调位置的提示
+    private Segmented segL, segP;                   // 横屏比例 / 竖屏位置
+    private TextView ratioTitle, modeLink;          // “视频比例”标题和右边的横 / 竖屏切换
     private LinearLayout settingsCard;
     private LinearLayout.LayoutParams settingsLp;   // 设置卡的上边距：授权卡显示时 12dp，收起时补回 16dp
     private PowerButton power;
@@ -244,7 +245,6 @@ public class MainActivity extends Activity {
         plp.setMargins(-dp(PreviewView.PAD_X), -dp(PreviewView.PAD_T),
                 -dp(PreviewView.PAD_X), -dp(PreviewView.PAD_B - 10));
         shot.addView(preview, plp);
-        preview.setOnPositionChange(() -> showOffset(slider.getValue(), true));
 
         resetBtn = new TextView(this);
         resetBtn.setText("↺");
@@ -260,29 +260,13 @@ public class MainActivity extends Activity {
         Ui.lift(resetBtn, 4, 0x554F7CFF, 0x884F7CFF);
         resetBtn.setAlpha(0f);
         resetBtn.setClickable(false);
-        resetBtn.setOnClickListener(v -> {
-            if (editPortrait) {   // 竖屏：位置一起回到居中
-                sp.edit().putFloat(MaskService.KEY_POS_P, 0.5f).apply();
-                preview.invalidate();
-            }
-            setOffset(0);
-            showOffset(0, true);
-            changed();
-        });
+        resetBtn.setOnClickListener(v -> setOffset(0));
         Ui.press(resetBtn, 0.9f);
         FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(dp(44), dp(44),
                 Gravity.TOP | Gravity.END);
         rlp.setMargins(0, dp(4), dp(4), 0);
         shot.addView(resetBtn, rlp);
         stage.addView(shot, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        posHint = new TextView(this);
-        posHint.setText("上下拖动画面，调整视频位置");
-        posHint.setTextSize(12);
-        posHint.setTextColor(Ui.DIM);
-        posHint.setGravity(Gravity.CENTER);
-        posHint.setVisibility(editPortrait ? View.VISIBLE : View.GONE);
-        stage.addView(posHint, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         LinearLayout fine = new LinearLayout(this);
         fine.setOrientation(LinearLayout.HORIZONTAL);
@@ -432,27 +416,63 @@ public class MainActivity extends Activity {
         s.addView(seg, below());
     }
 
-    /** 视频比例：16:9 / 4:3 是横屏，“竖屏”= 竖屏播放 16:9 视频（盖上下，可拖动调位置）；选哪个就编辑哪一侧。 */
+    /**
+     * 视频比例：横屏是 16:9 / 4:3；右边的小链接切到竖屏，竖屏有两项：16:9 居中、视频靠上。
+     * 横屏、竖屏的微调分开保存；切到竖屏就是开启竖屏遮罩，切回横屏就关闭。
+     */
     private void buildRatioRow(LinearLayout card) {
         LinearLayout s = section(card, false);
-        s.addView(labelRow("视频比例", null));
-
-        float cur = sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
-        int sel = editPortrait ? 2 : Math.abs(RATIO_VALUES[1] - cur) < 0.001f ? 1 : 0;
-        if (sel == 0) sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[0]).apply();
-        Segmented seg = new Segmented(this, new String[]{"16:9", "4:3", "竖屏"}, sel,
-                new float[]{16f / 9f, 4f / 3f, 9f / 16f});
-        seg.setOnSelect(i -> {
-            boolean was = editPortrait;
-            editPortrait = i == 2;
-            SharedPreferences.Editor ed = sp.edit().putBoolean(MaskService.KEY_PORTRAIT, editPortrait);
-            if (!editPortrait) ed.putFloat(MaskService.KEY_RATIO, RATIO_VALUES[i]);
-            ed.apply();
-            if (was != editPortrait) onTabChanged(); else afterRatioChanged();
+        modeLink = link("");
+        modeLink.setTextColor(Ui.PRI);
+        modeLink.setTypeface(Typeface.DEFAULT_BOLD);
+        modeLink.setOnClickListener(v -> {
+            editPortrait = !editPortrait;
+            sp.edit().putBoolean(MaskService.KEY_PORTRAIT, editPortrait).apply();
+            onTabChanged();
             changed();
         });
-        Ui.press(seg, 0.985f);
-        s.addView(seg, below());
+        Ui.press(modeLink, 0.94f);
+        LinearLayout lr = labelRow("视频比例", modeLink);
+        ratioTitle = (TextView) lr.getChildAt(0);
+        lr.setMinimumHeight(dp(44));
+        LinearLayout.LayoutParams lrp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lrp.topMargin = -dp(10);
+        lrp.bottomMargin = -dp(10);
+        s.addView(lr, lrp);
+
+        // 横屏
+        float cur = sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
+        int selL = Math.abs(RATIO_VALUES[1] - cur) < 0.001f ? 1 : 0;
+        if (selL == 0) sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[0]).apply();
+        segL = new Segmented(this, new String[]{"16:9", "4:3"}, selL, RATIO_VALUES);
+        segL.setOnSelect(i -> {
+            sp.edit().putFloat(MaskService.KEY_RATIO, RATIO_VALUES[i]).apply();
+            afterRatioChanged();
+        });
+        Ui.press(segL, 0.985f);
+        s.addView(segL, below());
+
+        // 竖屏：视频 16:9 撑满宽度，居中，或者靠上
+        boolean top = sp.getFloat(MaskService.KEY_POS_P, 0.5f) < 0.4f;
+        segP = new Segmented(this, new String[]{"16:9 居中", "视频靠上"}, top ? 1 : 0);
+        segP.setOnSelect(i -> {
+            sp.edit().putFloat(MaskService.KEY_POS_P, i == 1 ? MaskService.POS_TOP : 0.5f).apply();
+            preview.invalidate();
+            changed();
+        });
+        Ui.press(segP, 0.985f);
+        s.addView(segP, below());
+
+        updateModeUi();
+    }
+
+    /** 标题、链接、两排选项跟着当前是横屏还是竖屏。 */
+    private void updateModeUi() {
+        ratioTitle.setText(editPortrait ? "竖屏 · 视频位置" : "视频比例");
+        modeLink.setText(editPortrait ? "切换横屏 ›" : "切换竖屏 ›");
+        segL.setVisibility(editPortrait ? View.GONE : View.VISIBLE);
+        segP.setVisibility(editPortrait ? View.VISIBLE : View.GONE);
     }
 
     /** 比例变了：演示屏平滑过渡，微调范围收回到新的下限。 */
@@ -471,7 +491,7 @@ public class MainActivity extends Activity {
 
     /** 切到横屏 / 竖屏：微调、演示屏、微调、演示屏都换成对应一侧的设置。 */
     private void onTabChanged() {
-        posHint.setVisibility(editPortrait ? View.VISIBLE : View.GONE);
+        updateModeUi();
         applyRange();
         int off = Math.max(slider.getMin(), Math.min(Slider.MAX, sp.getInt(offKey(), 0)));
         slider.setValue(off);
@@ -497,9 +517,7 @@ public class MainActivity extends Activity {
 
     private void showOffset(int v, boolean animate) {
         if (resetBtn == null) return;
-        // 竖屏：位置不在居中也算有改动，“归零”要能点
-        boolean show = v != 0 || (editPortrait
-                && Math.abs(sp.getFloat(MaskService.KEY_POS_P, 0.5f) - 0.5f) > 0.001f);
+        boolean show = v != 0;
         resetBtn.setClickable(show);
         resetBtn.setEnabled(show);
         float a = show ? 1f : 0f, s = show ? 1f : 0.8f;

@@ -9,13 +9,12 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Shader;
-import android.view.MotionEvent;
 import android.view.View;
 
 /**
  * 演示屏：开启后，视频两边（横屏）或上下（竖屏）的黑边变成白色。
  * 选了“竖屏”（KEY_PORTRAIT）就画竖屏；比例、微调与真实遮罩算法一致。
- * 竖屏时可以上下拖动画面，调整视频在屏幕里的位置。
+ * 竖屏有“居中”和“视频靠上”两种位置。
  * 屏幕外有一圈很细的浅蓝灰描边，白边才看得出边界。外面的白色卡片由使用它的布局提供。
  */
 public class PreviewView extends View {
@@ -28,9 +27,6 @@ public class PreviewView extends View {
     private ValueAnimator anim;
     private float shownRatio;          // 正在显示的画幅（切换 16:9 / 4:3 时平滑过渡）
     private ValueAnimator ratioAnim;
-    private Runnable onPosition;       // 拖动改变了竖屏位置
-    private float lastY;
-    private boolean dragging;
 
     /** 竖屏演示屏的高度（dp）。 */
     private static final int PORTRAIT_H = 210;
@@ -42,8 +38,6 @@ public class PreviewView extends View {
         shownRatio = curRatio();
         setLayerType(LAYER_TYPE_SOFTWARE, null);   // 让屏幕下面的阴影在所有机型上都能画出来
     }
-
-    public void setOnPositionChange(Runnable r) { onPosition = r; }
 
     private boolean portrait() { return sp.getBoolean(MaskService.KEY_PORTRAIT, false); }
 
@@ -234,37 +228,5 @@ public class PreviewView extends View {
         cv.drawRoundRect(rect, rad, rad, paint);
         paint.setStyle(Paint.Style.FILL);
         cv.restore();
-    }
-
-    /** 竖屏：上下拖动画面，调整视频在屏幕里的位置（0 = 贴顶，0.5 = 居中，1 = 贴底）。 */
-    @Override
-    public boolean onTouchEvent(MotionEvent e) {
-        if (!portrait()) return super.onTouchEvent(e);
-        switch (e.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
-                dragging = true;
-                lastY = e.getY();
-                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
-                return true;
-            case MotionEvent.ACTION_MOVE:
-                if (!dragging) return true;
-                float[] sz = screenSize();
-                float free = sz[1] - sz[0] / curRatio();
-                if (free > 1f) {
-                    float pos = sp.getFloat(MaskService.KEY_POS_P, 0.5f) + (e.getY() - lastY) / free;
-                    pos = Math.max(0f, Math.min(1f, pos));
-                    sp.edit().putFloat(MaskService.KEY_POS_P, pos).apply();
-                    invalidate();
-                    if (onPosition != null) onPosition.run();
-                }
-                lastY = e.getY();
-                return true;
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_CANCEL:
-                dragging = false;
-                return true;
-            default:
-                return true;
-        }
     }
 }

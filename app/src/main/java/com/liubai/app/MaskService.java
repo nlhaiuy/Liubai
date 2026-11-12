@@ -32,6 +32,8 @@ public class MaskService extends Service {
     public static final String KEY_PORTRAIT = "portrait"; // 视频比例选了“竖屏”：竖屏时盖住视频上下（视频 16:9、撑满屏幕宽度）
     // 竖屏的微调和位置与横屏分开保存
     public static final String KEY_OFFSET_P = "offset_p"; // 竖屏微调(dp)，正数=上下遮罩变厚
+    /** 竖屏“视频靠上”预设：视频顶边在屏幕高度约 19% 处（直播间那种视频在上、聊天在下的布局）。 */
+    public static final float POS_TOP = 0.252f;
     public static final String KEY_POS_P = "pos_p";       // 视频在竖屏里的上下位置：0=贴顶，0.5=居中，1=贴底
     public static final float DEFAULT_RATIO = 16f / 9f;
     public static final int DEFAULT_LAYERS = 1;
