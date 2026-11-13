@@ -361,7 +361,7 @@ public class MainActivity extends Activity {
             shot.setLayoutParams(lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             LinearLayout.LayoutParams slp = lp(ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.MATCH_PARENT);
-            slp.leftMargin = dp(16);
+            slp.leftMargin = dp(6);   // 滑条在 56dp 宽的列里居中，再加上滑块本身的留白，这样手机到滑块约 18dp
             side.setLayoutParams(slp);
             fine.setLayoutParams(lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
         } else {
@@ -818,8 +818,18 @@ public class MainActivity extends Activity {
     private boolean applicable(int i) {
         if (i == 1) return Build.VERSION.SDK_INT >= 33;
         if (i == 3) return AutoMode.isEnabled(this);
-        if (i >= 4) return AutoMode.isEnabled(this) && AutoMode.isPlayOnly(this);   // 通知使用权 / Shizuku
+        if (i == 4) return AutoMode.isEnabled(this) && AutoMode.isPlayOnly(this);   // 通知使用权
+        // Shizuku：“仅播放时”要用它；另外只要还有权限没开，也提示它——授权后可以一键开启其余权限
+        if (i == 5) return (AutoMode.isEnabled(this) && AutoMode.isPlayOnly(this)) || anyBasicMissing();
         return true;
+    }
+
+    /** 悬浮窗、通知、后台运行、无障碍里，是不是还有没开的。 */
+    private boolean anyBasicMissing() {
+        for (int i = 0; i <= 3; i++) {
+            if (applicable(i) && missing(i)) return true;
+        }
+        return false;
     }
 
     private boolean missing(int i) {
@@ -979,8 +989,37 @@ public class MainActivity extends Activity {
         return row;
     }
 
-    /** 一项权限，直达对应的系统授权页。只在你点“开启”时才会跳。 */
+    /**
+     * 点“开启”：Shizuku 已经授权给留白时，直接由 Shizuku 替留白开启，不用跳系统设置页；
+     * 没有 Shizuku、或者开启后没生效，就走原来的系统授权页。
+     */
     private void launch(int i) {
+        if (i <= 4 && PlaybackDetector.shizukuState(this) == 3) {
+            ShizukuGrant.grant(this, i, error -> onShizukuGranted(i, error));
+            return;
+        }
+        launchSystem(i);
+    }
+
+    private void onShizukuGranted(int i, String error) {
+        if (isFinishing() || isDestroyed()) return;
+        refreshPerms();
+        if (error.isEmpty() && i == 3) {
+            // 无障碍服务要等系统重新绑定，一两秒后才会显示“已连接”，这里不能立刻判定没生效
+            Toast.makeText(this, "已通过 Shizuku 开启无障碍", Toast.LENGTH_SHORT).show();
+            repeat.postDelayed(this::refreshPerms, 1200);
+            repeat.postDelayed(this::refreshPerms, 3000);
+            return;
+        }
+        if (error.isEmpty() && !missing(i)) {
+            Toast.makeText(this, "已通过 Shizuku 开启" + PERM_NAMES[i], Toast.LENGTH_SHORT).show();
+            return;
+        }
+        launchSystem(i);   // Shizuku 没能开启（个别系统限制），退回系统授权页
+    }
+
+    /** 一项权限，直达对应的系统授权页。只在你点“开启”时才会跳。 */
+    private void launchSystem(int i) {
         try {
             switch (i) {
                 case 0:

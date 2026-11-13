@@ -41,7 +41,7 @@ public final class PlaybackDetector {
 
     public static final String SHIZUKU_PKG = "moe.shizuku.privileged.api";
     private static final int SHIZUKU_REQ = 1001;
-    private static final int SHELL_VERSION = 1;
+    private static final int SHELL_VERSION = 2;   // 服务端接口变了（新增 grant），升版本让 Shizuku 重启旧的服务进程
 
     private static final Set<String> EMPTY = Collections.emptySet();
     private static final Handler main = new Handler(Looper.getMainLooper());
@@ -110,6 +110,11 @@ public final class PlaybackDetector {
     private static final Shizuku.OnRequestPermissionResultListener permResult = (code, result) -> {
         tryBindShell();
         notifyChanged();
+        // 没开“仅播放时”的话检测没在运行，notifyChanged 不会通知界面；授权结果仍要让设置页刷新
+        main.post(() -> {
+            Runnable r = onStateChanged;
+            if (r != null) r.run();
+        });
     };
     private static final android.content.ServiceConnection shellConn =
             new android.content.ServiceConnection() {
@@ -168,6 +173,11 @@ public final class PlaybackDetector {
             Log.w(TAG, "listenerEnabled failed", e);
         }
         return false;
+    }
+
+    /** 播放检测已经连上的 Shizuku 服务（没连上是 null）。一键授权优先复用它。 */
+    static IShellService connectedShell() {
+        return shell;
     }
 
     /** Shizuku 状态：0 没装，1 装了但没在运行，2 在运行但留白还没授权，3 就绪。 */
@@ -390,7 +400,12 @@ public final class PlaybackDetector {
     // ---------------- ① Shizuku ----------------
 
     private static Shizuku.UserServiceArgs shellArgs() {
-        return new Shizuku.UserServiceArgs(new ComponentName(app.getPackageName(), ShellService.class.getName()))
+        return shellArgs(app);
+    }
+
+    /** Shizuku 用户服务的参数。播放检测和一键授权必须用同一份，才会连到同一个服务进程。 */
+    static Shizuku.UserServiceArgs shellArgs(Context c) {
+        return new Shizuku.UserServiceArgs(new ComponentName(c.getPackageName(), ShellService.class.getName()))
                 .processNameSuffix("shell")
                 .daemon(false)
                 .debuggable(false)
