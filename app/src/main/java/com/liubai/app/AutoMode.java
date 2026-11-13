@@ -297,7 +297,7 @@ public final class AutoMode {
         boolean land = isLandscape(c);
         if (!land && !isPortraitMask(c)) return false;
         if (!isSelected(c, f, !land)) return false;
-        // 仅播放时显示：这个软件此刻没在播放（停止后再保持几秒）就收起来
+        // 仅播放时显示：这个软件此刻没在播放就立刻收起来
         return !isPlayOnly(c) || PlaybackDetector.isPlaying(c, f);
     }
 

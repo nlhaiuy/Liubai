@@ -12,7 +12,6 @@ import android.media.session.PlaybackState;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 
@@ -35,14 +34,12 @@ import rikka.shizuku.Shizuku;
  *  ② 媒体会话：MediaSessionManager（需要通知使用权），知道各个包的 PlaybackState。
  *  ③ 系统音频：AudioPlaybackCallback（无需任何权限），只知道“有没有媒体在响”，不知道是谁，
  *     所以要配合前台包名使用。
- * 三层都看不到无声视频；停止播放后再保持 HOLD_MS，免得切集、广告、缓冲时遮罩闪烁。
+ * 三层都看不到无声视频。播放一停就立刻判定为没在播放，不做延迟。
  */
 public final class PlaybackDetector {
     private static final String TAG = "LiubaiPlay";
 
     public static final String SHIZUKU_PKG = "moe.shizuku.privileged.api";
-    /** 播放停止后继续保持的时间。 */
-    private static final long HOLD_MS = 4000L;
     private static final int SHIZUKU_REQ = 1001;
     private static final int SHELL_VERSION = 1;
 
@@ -133,13 +130,6 @@ public final class PlaybackDetector {
                 }
             };
 
-    // ---------------- 保持时间 ----------------
-    private static volatile long lastPlayAt = 0L;
-    private static volatile String holdPkg = "";
-    private static final Runnable recheck = () -> {
-        if (app != null) AutoMode.evaluate(app);
-    };
-
     private PlaybackDetector() { }
 
     // ---------------- 对外接口 ----------------
@@ -150,27 +140,12 @@ public final class PlaybackDetector {
         else stop();
     }
 
-    /**
-     * 这个软件此刻是不是在播放（停止后再保持 HOLD_MS）。pkg 为空表示“不管是谁”，只问有没有东西在播。
-     * 会顺带记录播放时间、并在保持期结束时安排一次重新判断。
-     */
+    /** 这个软件此刻是不是在播放。pkg 为空表示“不管是谁”，只问有没有东西在播。 */
     static boolean isPlaying(Context c, String pkg) {
         synchronized (PlaybackDetector.class) {
             start(c);
         }
-        String p = pkg == null ? "" : pkg;
-        long now = SystemClock.elapsedRealtime();
-        if (computeNow(p)) {
-            lastPlayAt = now;
-            holdPkg = p;
-            return true;
-        }
-        if (p.equals(holdPkg) && now - lastPlayAt < HOLD_MS) {
-            main.removeCallbacks(recheck);
-            main.postDelayed(recheck, HOLD_MS - (now - lastPlayAt) + 50);
-            return true;
-        }
-        return false;
+        return computeNow(pkg == null ? "" : pkg);
     }
 
     /** 当前生效的是哪一层：3 = Shizuku，2 = 媒体会话，1 = 系统音频。 */
@@ -279,7 +254,6 @@ public final class PlaybackDetector {
     private static synchronized void stop() {
         if (!started) return;
         started = false;
-        main.removeCallbacks(recheck);
         try {
             if (am != null) am.unregisterAudioPlaybackCallback(audioCb);
         } catch (Exception ignored) { }
@@ -311,8 +285,6 @@ public final class PlaybackDetector {
         binding = false;
         shizukuBroken = false;
         shizukuPkgs = EMPTY;
-        lastPlayAt = 0L;
-        holdPkg = "";
     }
 
     // ---------------- 判断 ----------------
