@@ -53,9 +53,9 @@ public class Slider extends View {
 
     public int getMax() { return max; }
 
-    /** 上限随可移动的距离变（竖屏移动视频位置时，往上最多移到贴顶）。 */
+    /** 上限随可移动的距离变（竖屏移动视频位置时，往上最多移到贴顶，可以超过默认的 MAX）。 */
     public void setMax(int m) {
-        max = Math.max(10, Math.min(MAX, m));
+        max = Math.max(10, m);
         value = clamp(value);
         invalidate();
     }

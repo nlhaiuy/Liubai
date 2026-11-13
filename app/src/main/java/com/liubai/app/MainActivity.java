@@ -643,14 +643,14 @@ public class MainActivity extends Activity {
 
     /**
      * 微调范围。横屏：下限 = 当前画幅下一侧黑边的宽度，再往负遮罩已经是 0 了。
-     * 竖屏：是移动视频位置，往上最多移到贴顶、往下最多移到贴底（都不超过 ±100dp），随当前位置预设变。
+     * 竖屏：是移动视频位置，往上最多移到贴顶、往下最多移到贴底，覆盖整个屏幕高度，随当前位置预设变。
      */
     private void applyRange() {
         float ratio = curRatio();
         if (editPortrait) {
             int[] r = Ui.portraitShiftRangeDp(this, ratio, sp.getFloat(MaskService.KEY_POS_P, 0.5f));
-            slider.setMin(-Math.min(Slider.MAX, r[1]));
-            slider.setMax(Math.min(Slider.MAX, r[0]));
+            slider.setMin(-r[1]);
+            slider.setMax(r[0]);
         } else {
             slider.setMin(-Ui.baseBarDp(this, ratio));
             slider.setMax(Slider.MAX);
