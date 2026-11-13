@@ -31,7 +31,7 @@ public class MaskService extends Service {
     public static final String KEY_LAYERS = "layers"; // 每侧叠几层：1=标准，3=加强
     public static final String KEY_PORTRAIT = "portrait"; // 视频比例选了“竖屏”：竖屏时盖住视频上下（视频 16:9、撑满屏幕宽度）
     // 竖屏的微调和位置与横屏分开保存
-    public static final String KEY_OFFSET_P = "offset_p"; // 竖屏微调(dp)，正数=上下遮罩变厚
+    public static final String KEY_SHIFT_P = "shift_p";   // 竖屏微调(dp)：视频在预设位置的基础上上下移动，正数=往上移
     /** 竖屏“视频靠上”预设：视频顶边在屏幕高度约 19% 处（直播间那种视频在上、聊天在下的布局）。 */
     public static final float POS_TOP = 0.252f;
     /** 竖屏“状态栏下”预设：视频顶边紧贴状态栏下沿（按这台手机的状态栏高度换算，见 Ui.portraitPos）。 */
@@ -165,13 +165,13 @@ public class MaskService extends Service {
             }
             // 视频撑满宽度，上下位置由 pos 决定：上边黑条 = 剩余高度 × pos
             float ratio = DEFAULT_RATIO;
-            int offsetPx = Math.round(sp.getInt(KEY_OFFSET_P, 0) * m.density);
+            int shiftPx = Math.round(sp.getInt(KEY_SHIFT_P, 0) * m.density);   // 正数 = 视频往上移
             float free = Math.max(0f, h - w / ratio);
             float pos = Ui.portraitPos(this, sp.getFloat(KEY_POS_P, 0.5f), h, w, ratio);
-            a = Math.round(free * pos) + offsetPx;
-            b = Math.round(free * (1f - pos)) + offsetPx;
-            a = Math.max(0, Math.min(a, h));
-            b = Math.max(0, Math.min(b, h - a));
+            int freePx = Math.round(free);
+            // 微调是“移动视频”：上边黑条变多少，下边就少多少，两条加起来始终等于剩余高度
+            a = Math.max(0, Math.min(Math.round(free * pos) - shiftPx, freePx));
+            b = freePx - a;
         } else {
             // 横屏：左右各一条，宽 = (屏幕宽 − 屏幕高×比例) / 2
             float ratio = sp.getFloat(KEY_RATIO, DEFAULT_RATIO);

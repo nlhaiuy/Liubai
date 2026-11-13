@@ -71,6 +71,17 @@ final class Ui {
         return Math.max(0, (int) Math.floor((s[0] - s[1] / ratio) / 2f / s[2]));
     }
 
+    /**
+     * 竖屏：视频位置在当前预设的基础上，最多能往上 / 往下移多远（dp）。返回 {往上, 往下}。
+     * 往上最多移到贴顶，往下最多移到贴底。
+     */
+    static int[] portraitShiftRangeDp(Context c, float ratio, float storedPos) {
+        float[] s = realScreen(c);
+        float free = Math.max(0f, s[0] - s[1] / ratio);
+        float pos = portraitPos(c, storedPos, s[0], s[1], ratio);
+        return new int[]{(int) Math.floor(free * pos / s[2]), (int) Math.floor(free * (1f - pos) / s[2])};
+    }
+
     /** 系统状态栏的高度（px）。 */
     static int statusBarPx(Context c) {
         int id = c.getResources().getIdentifier("status_bar_height", "dimen", "android");

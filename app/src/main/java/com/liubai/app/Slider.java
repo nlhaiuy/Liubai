@@ -21,6 +21,7 @@ public class Slider extends View {
     /** 控件的粗细（横向时是高，竖向时是宽），dp。 */
     public static final int THICK_DP = 56;
     private int min = -100;
+    private int max = MAX;
     private boolean vertical;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -50,6 +51,15 @@ public class Slider extends View {
 
     public int getMin() { return min; }
 
+    public int getMax() { return max; }
+
+    /** 上限随可移动的距离变（竖屏移动视频位置时，往上最多移到贴顶）。 */
+    public void setMax(int m) {
+        max = Math.max(10, Math.min(MAX, m));
+        value = clamp(value);
+        invalidate();
+    }
+
     /** 下限随黑边宽度变（再往负就没有意义了）。 */
     public void setMin(int m) {
         min = Math.min(-10, m);
@@ -62,7 +72,7 @@ public class Slider extends View {
         invalidate();
     }
 
-    private int clamp(int v) { return Math.max(min, Math.min(MAX, v)); }
+    private int clamp(int v) { return Math.max(min, Math.min(max, v)); }
 
     @Override
     protected void onMeasure(int w, int h) {
@@ -81,13 +91,13 @@ public class Slider extends View {
 
     private float xFor(int v) {
         float r = inset();
-        return r + (v - min) / (float) (MAX - min) * (len() - 2 * r);
+        return r + (v - min) / (float) (max - min) * (len() - 2 * r);
     }
 
     private int valueAt(float x) {
         float r = inset();
         float t = (x - r) / Math.max(1f, len() - 2 * r);
-        return clamp(Math.round(min + t * (MAX - min)));
+        return clamp(Math.round(min + t * (max - min)));
     }
 
     @Override

@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
     private int dp(float v) { return Math.round(v * density); }
 
     /** 横屏 / 竖屏的设置分开存。 */
-    private String offKey() { return editPortrait ? MaskService.KEY_OFFSET_P : MaskService.KEY_OFFSET; }
+    private String offKey() { return editPortrait ? MaskService.KEY_SHIFT_P : MaskService.KEY_OFFSET; }
     private float curRatio() {
         return editPortrait ? MaskService.DEFAULT_RATIO
                 : sp.getFloat(MaskService.KEY_RATIO, MaskService.DEFAULT_RATIO);
@@ -304,9 +304,9 @@ public class MainActivity extends Activity {
         plusBtn = stepButton("+", "增大", 1);
 
         slider = new Slider(this);
-        slider.setContentDescription("宽度微调");
+        slider.setContentDescription(editPortrait ? "上下移动视频位置" : "宽度微调");
         applyRange();
-        int off = Math.max(slider.getMin(), Math.min(Slider.MAX, sp.getInt(offKey(), 0)));
+        int off = Math.max(slider.getMin(), Math.min(slider.getMax(), sp.getInt(offKey(), 0)));
         slider.setValue(off);
         showOffset(off, false);
         slider.setOnChange((v, user) -> {
@@ -361,7 +361,7 @@ public class MainActivity extends Activity {
             shot.setLayoutParams(lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             LinearLayout.LayoutParams slp = lp(ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.MATCH_PARENT);
-            slp.leftMargin = dp(6);   // 滑条在 56dp 宽的列里居中，再加上滑块本身的留白，这样手机到滑块约 18dp
+            slp.leftMargin = dp(24);   // 滑条在 56dp 宽的列里居中，加上滑块本身的留白，手机到滑块约 36dp
             side.setLayoutParams(slp);
             fine.setLayoutParams(lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
         } else {
@@ -562,8 +562,12 @@ public class MainActivity extends Activity {
         int selP = storedPos < 0f ? 2 : storedPos < 0.4f ? 1 : 0;
         segP = new Segmented(this, new String[]{"16:9 居中", "视频靠上", "状态栏下"}, selP);
         segP.setOnSelect(i -> {
-            sp.edit().putFloat(MaskService.KEY_POS_P, POS_VALUES[i]).apply();
-            preview.invalidate();
+            // 选一个预设位置，微调回到 0；滑条在这个预设的基础上上下细调
+            sp.edit().putFloat(MaskService.KEY_POS_P, POS_VALUES[i])
+                    .putInt(MaskService.KEY_SHIFT_P, 0).apply();
+            applyRange();
+            slider.setValue(0);
+            showOffset(0, true);
             changed();
         });
         Ui.press(segP, 0.985f);
@@ -598,7 +602,8 @@ public class MainActivity extends Activity {
         updateStageLayout();
         updateModeUi();
         applyRange();
-        int off = Math.max(slider.getMin(), Math.min(Slider.MAX, sp.getInt(offKey(), 0)));
+        slider.setContentDescription(editPortrait ? "上下移动视频位置" : "宽度微调");
+        int off = Math.max(slider.getMin(), Math.min(slider.getMax(), sp.getInt(offKey(), 0)));
         slider.setValue(off);
         showOffset(off, false);
         preview.tabChanged();
@@ -636,14 +641,24 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 微调下限 = 当前画幅下一侧黑边的宽度：再往负，遮罩已经是 0 了，没有意义。 */
+    /**
+     * 微调范围。横屏：下限 = 当前画幅下一侧黑边的宽度，再往负遮罩已经是 0 了。
+     * 竖屏：是移动视频位置，往上最多移到贴顶、往下最多移到贴底（都不超过 ±100dp），随当前位置预设变。
+     */
     private void applyRange() {
         float ratio = curRatio();
-        slider.setMin(-(editPortrait ? Ui.basePortraitBarDp(this, ratio) : Ui.baseBarDp(this, ratio)));
+        if (editPortrait) {
+            int[] r = Ui.portraitShiftRangeDp(this, ratio, sp.getFloat(MaskService.KEY_POS_P, 0.5f));
+            slider.setMin(-Math.min(Slider.MAX, r[1]));
+            slider.setMax(Math.min(Slider.MAX, r[0]));
+        } else {
+            slider.setMin(-Ui.baseBarDp(this, ratio));
+            slider.setMax(Slider.MAX);
+        }
     }
 
     private void setOffset(int v) {
-        v = Math.max(slider.getMin(), Math.min(Slider.MAX, v));
+        v = Math.max(slider.getMin(), Math.min(slider.getMax(), v));
         if (v == slider.getValue() && sp.getInt(offKey(), 0) == v) return;
         sp.edit().putInt(offKey(), v).apply();
         slider.setValue(v);
@@ -795,7 +810,7 @@ public class MainActivity extends Activity {
      * 到 0 或者 ±100 时最明显，让人不用看也知道到了。
      */
     private void tick(int o) {
-        boolean edge = o == 0 || o == Slider.MAX || o == slider.getMin();
+        boolean edge = o == 0 || o == slider.getMax() || o == slider.getMin();
         boolean major = o % 10 == 0;
         if (vib != null && vib.hasVibrator()) {
             if (Build.VERSION.SDK_INT >= 26 && vib.hasAmplitudeControl()) {

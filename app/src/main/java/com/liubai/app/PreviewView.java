@@ -59,7 +59,7 @@ public class PreviewView extends View {
     }
 
     private int curOffset() {
-        return sp.getInt(portrait() ? MaskService.KEY_OFFSET_P : MaskService.KEY_OFFSET, 0);
+        return sp.getInt(portrait() ? MaskService.KEY_SHIFT_P : MaskService.KEY_OFFSET, 0);
     }
 
     public void setOn(boolean on) {
@@ -177,9 +177,10 @@ public class PreviewView extends View {
             vh = sw / ratio;
             vl = 0f;
             float free = Math.max(0f, sh - vh);
-            vt = free * pos;
-            a = Math.max(0f, Math.min(vt + off, sh));
-            b = Math.max(0f, Math.min(free - vt + off, sh - a));
+            // 竖屏微调是移动视频（正数 = 往上移）：视频顶边 = 预设位置 − 移动量，上下黑条加起来仍是 free
+            vt = Math.max(0f, Math.min(free * pos - off, free));
+            a = vt;
+            b = free - vt;
         } else {
             vw = Math.min(sw, sh * ratio);
             vh = sh;
