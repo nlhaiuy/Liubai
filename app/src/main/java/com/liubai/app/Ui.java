@@ -71,6 +71,24 @@ final class Ui {
         return Math.max(0, (int) Math.floor((s[0] - s[1] / ratio) / 2f / s[2]));
     }
 
+    /** 系统状态栏的高度（px）。 */
+    static int statusBarPx(Context c) {
+        int id = c.getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? c.getResources().getDimensionPixelSize(id) : Math.round(dp(c, 24));
+    }
+
+    /**
+     * 竖屏视频的上下位置，占“屏幕高度 − 视频高度”的比例（0=贴顶，0.5=居中，1=贴底）。
+     * stored 小于 0（MaskService.POS_STATUS）表示“紧贴状态栏下面”：按这台手机的状态栏高度换算，
+     * 例如 B 站、抖音竖屏视频那种视频顶边正好接在状态栏下沿的布局。
+     * screenH / screenW 是真实屏幕的长边 / 短边（px），ratio 是视频宽高比。
+     */
+    static float portraitPos(Context c, float stored, float screenH, float screenW, float ratio) {
+        if (stored >= 0f) return Math.min(1f, stored);
+        float free = Math.max(1f, screenH - screenW / ratio);
+        return Math.min(1f, statusBarPx(c) / free);
+    }
+
     /**
      * 让阴影不被父布局切掉：Android 默认会把子 View 的绘制裁在父布局（和它的内边距）里，
      * 阴影一出界就变成一条直边。滚动容器 / 列表要保留裁剪，其余全部放开。

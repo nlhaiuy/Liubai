@@ -34,7 +34,9 @@ public class MaskService extends Service {
     public static final String KEY_OFFSET_P = "offset_p"; // 竖屏微调(dp)，正数=上下遮罩变厚
     /** 竖屏“视频靠上”预设：视频顶边在屏幕高度约 19% 处（直播间那种视频在上、聊天在下的布局）。 */
     public static final float POS_TOP = 0.252f;
-    public static final String KEY_POS_P = "pos_p";       // 视频在竖屏里的上下位置：0=贴顶，0.5=居中，1=贴底
+    /** 竖屏“状态栏下”预设：视频顶边紧贴状态栏下沿（按这台手机的状态栏高度换算，见 Ui.portraitPos）。 */
+    public static final float POS_STATUS = -1f;
+    public static final String KEY_POS_P = "pos_p";       // 视频在竖屏里的上下位置：0=贴顶，0.5=居中，1=贴底，-1=状态栏下
     public static final float DEFAULT_RATIO = 16f / 9f;
     public static final int DEFAULT_LAYERS = 1;
     public static final int MAX_LAYERS = 6;
@@ -165,7 +167,7 @@ public class MaskService extends Service {
             float ratio = DEFAULT_RATIO;
             int offsetPx = Math.round(sp.getInt(KEY_OFFSET_P, 0) * m.density);
             float free = Math.max(0f, h - w / ratio);
-            float pos = Math.max(0f, Math.min(1f, sp.getFloat(KEY_POS_P, 0.5f)));
+            float pos = Ui.portraitPos(this, sp.getFloat(KEY_POS_P, 0.5f), h, w, ratio);
             a = Math.round(free * pos) + offsetPx;
             b = Math.round(free * (1f - pos)) + offsetPx;
             a = Math.max(0, Math.min(a, h));

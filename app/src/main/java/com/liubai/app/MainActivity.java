@@ -45,6 +45,7 @@ import java.util.List;
  */
 public class MainActivity extends Activity {
     private static final float[] RATIO_VALUES = {16f / 9f, 4f / 3f};
+    private static final float[] POS_VALUES = {0.5f, MaskService.POS_TOP, MaskService.POS_STATUS};
     private static final int[] STRENGTH_LAYERS = {1, 3};
 
     private SharedPreferences sp;
@@ -58,7 +59,8 @@ public class MainActivity extends Activity {
     private PreviewView preview;
     private boolean editPortrait;                   // 设置页当前在编辑竖屏还是横屏
     private Segmented segL, segP;                   // 横屏比例 / 竖屏位置
-    private LinearLayout stage, side;               // 演示卡内部：屏幕那一块 + 微调那一块
+    private LinearLayout stage, side, fine;        // 演示卡内部：屏幕那一块 + 微调那一块（− 滑条 +）
+    private TextView minusBtn, plusBtn;
     private FrameLayout shot;
     private TextView ratioTitle;                    // “视频比例” / “视频位置”标题
     private TextView modeTitle;                     // “生效范围”标题（竖屏时带“· 竖屏”）
@@ -297,11 +299,9 @@ public class MainActivity extends Activity {
         rlp.setMargins(0, dp(16), dp(16), 0);   // 卡片内边距 12dp + 4dp，和原来挂在屏幕右上角时的位置一致
         host.addView(resetBtn, rlp);
 
-        LinearLayout fine = new LinearLayout(this);
-        fine.setOrientation(LinearLayout.HORIZONTAL);
-        fine.setGravity(Gravity.CENTER_VERTICAL);
-        TextView minus = stepButton("−", "减小", -1);
-        TextView plus = stepButton("+", "增大", 1);
+        fine = new LinearLayout(this);
+        minusBtn = stepButton("−", "减小", -1);
+        plusBtn = stepButton("+", "增大", 1);
 
         slider = new Slider(this);
         slider.setContentDescription("宽度微调");
@@ -316,17 +316,9 @@ public class MainActivity extends Activity {
             changed();
         });
 
-        fine.addView(minus, lp(dp(44), dp(44)));
-        LinearLayout.LayoutParams slp = lp(0, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.weight = 1f;
-        slp.setMargins(dp(2), 0, dp(2), 0);
-        fine.addView(slider, slp);
-        fine.addView(plus, lp(dp(44), dp(44)));
-
-        side = new LinearLayout(this);          // 微调这一行：横屏在屏幕下面，竖屏在小手机右边
+        side = new LinearLayout(this);          // 微调：横屏是屏幕下面一行，竖屏是小手机右边一列
         side.setOrientation(LinearLayout.VERTICAL);
-        side.setGravity(Gravity.CENTER_VERTICAL);
-        side.addView(fine, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        side.addView(fine);
         stage.addView(shot);
         stage.addView(side);
         updateStageLayout();
@@ -337,28 +329,52 @@ public class MainActivity extends Activity {
         parent.addView(host, sgp);
     }
 
-    /** 竖屏演示屏的高度：让整张卡和横屏那张一样高（横屏那张的屏幕高度 + 竖屏把微调那一行的高度让给手机）。 */
+    /**
+     * 竖屏演示屏的高度：让整张卡和横屏那张一样高。
+     * 横屏那张 = 演示屏 + 一行微调（滑条控件高 Slider.THICK_DP），竖屏把这一行的高度让给小手机。
+     */
     private float portraitScreenHeightPx() {
         int screenW = getResources().getDisplayMetrics().widthPixels;
         float containerW = land ? screenW * 0.46f : screenW;          // 左栏 / 整屏宽度
         float inner = containerW - dp(land ? 20 + 8 : 20 + 20) - dp(24);   // 减去页边距和卡片内边距 = 横屏演示屏的宽度
-        return inner / PreviewView.aspect(this) + dp(44);
+        return inner / PreviewView.aspect(this) + dp(Slider.THICK_DP);
     }
 
-    /** 横屏：屏幕在上、微调在下；竖屏：小手机在左、微调在右。 */
+    /** 横屏：屏幕在上、微调（− 滑条 +）在下；竖屏：小手机在左、微调（+ 滑条 −）竖着排在右边。 */
     private void updateStageLayout() {
         boolean compact = editPortrait;
         stage.setOrientation(compact ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
-        stage.setGravity(compact ? Gravity.CENTER_VERTICAL : Gravity.NO_GRAVITY);
+        stage.setGravity(compact ? Gravity.CENTER : Gravity.NO_GRAVITY);
+        slider.setVertical(compact);
+
+        fine.removeAllViews();
+        fine.setOrientation(compact ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        fine.setGravity(compact ? Gravity.CENTER_HORIZONTAL : Gravity.CENTER_VERTICAL);
         if (compact) {
+            // 上 + ，中间滑条（下小上大），下 −
+            fine.addView(plusBtn, lp(dp(44), dp(44)));
+            LinearLayout.LayoutParams vlp = lp(dp(Slider.THICK_DP), 0);
+            vlp.weight = 1f;
+            fine.addView(slider, vlp);
+            fine.addView(minusBtn, lp(dp(44), dp(44)));
+
             shot.setLayoutParams(lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            LinearLayout.LayoutParams slp = lp(0, ViewGroup.LayoutParams.WRAP_CONTENT);
-            slp.weight = 1f;
-            slp.leftMargin = dp(10);
+            LinearLayout.LayoutParams slp = lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT);
+            slp.leftMargin = dp(16);
             side.setLayoutParams(slp);
+            fine.setLayoutParams(lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
         } else {
+            fine.addView(minusBtn, lp(dp(44), dp(44)));
+            LinearLayout.LayoutParams hlp = lp(0, ViewGroup.LayoutParams.WRAP_CONTENT);
+            hlp.weight = 1f;
+            hlp.setMargins(dp(2), 0, dp(2), 0);
+            fine.addView(slider, hlp);
+            fine.addView(plusBtn, lp(dp(44), dp(44)));
+
             shot.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             side.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            fine.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
     }
 
@@ -541,11 +557,12 @@ public class MainActivity extends Activity {
         Ui.press(segL, 0.985f);
         s.addView(segL, below());
 
-        // 竖屏：视频 16:9 撑满宽度，居中，或者靠上
-        boolean top = sp.getFloat(MaskService.KEY_POS_P, 0.5f) < 0.4f;
-        segP = new Segmented(this, new String[]{"16:9 居中", "视频靠上"}, top ? 1 : 0);
+        // 竖屏：视频 16:9 撑满宽度；居中 / 靠上（直播间那种）/ 状态栏下（B 站、抖音那种视频顶边接着状态栏）
+        float storedPos = sp.getFloat(MaskService.KEY_POS_P, 0.5f);
+        int selP = storedPos < 0f ? 2 : storedPos < 0.4f ? 1 : 0;
+        segP = new Segmented(this, new String[]{"16:9 居中", "视频靠上", "状态栏下"}, selP);
         segP.setOnSelect(i -> {
-            sp.edit().putFloat(MaskService.KEY_POS_P, i == 1 ? MaskService.POS_TOP : 0.5f).apply();
+            sp.edit().putFloat(MaskService.KEY_POS_P, POS_VALUES[i]).apply();
             preview.invalidate();
             changed();
         });

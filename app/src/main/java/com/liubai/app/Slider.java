@@ -12,12 +12,16 @@ import android.view.View;
 /**
  * 宽度微调滑条：-100 ~ +100，每 1dp 一档。
  * 蓝色渐变的已走过部分，白色圆形滑块，当前数值直接写在滑块里，轨道正中间有一道 0 刻度。
+ * 默认横向（左小右大）；setVertical(true) 变成上下方向（下小上大），数字始终保持正着写。
  */
 public class Slider extends View {
     public interface OnChange { void onChange(int value, boolean fromUser); }
 
     public static final int MAX = 100;
+    /** 控件的粗细（横向时是高，竖向时是宽），dp。 */
+    public static final int THICK_DP = 56;
     private int min = -100;
+    private boolean vertical;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
@@ -33,6 +37,14 @@ public class Slider extends View {
     }
 
     public void setOnChange(OnChange cb) { this.cb = cb; }
+
+    /** true = 上下方向（下小上大）。 */
+    public void setVertical(boolean v) {
+        if (vertical == v) return;
+        vertical = v;
+        requestLayout();
+        invalidate();
+    }
 
     public int getValue() { return value; }
 
@@ -54,8 +66,13 @@ public class Slider extends View {
 
     @Override
     protected void onMeasure(int w, int h) {
-        setMeasuredDimension(MeasureSpec.getSize(w), Math.round(Ui.dp(getContext(), 56)));
+        int thick = Math.round(Ui.dp(getContext(), THICK_DP));
+        if (vertical) setMeasuredDimension(thick, MeasureSpec.getSize(h));
+        else setMeasuredDimension(MeasureSpec.getSize(w), thick);
     }
+
+    /** 沿着滑动方向的长度。 */
+    private float len() { return vertical ? getHeight() : getWidth(); }
 
     private float thumbR() { return Ui.dp(getContext(), 16); }
 
@@ -64,20 +81,27 @@ public class Slider extends View {
 
     private float xFor(int v) {
         float r = inset();
-        return r + (v - min) / (float) (MAX - min) * (getWidth() - 2 * r);
+        return r + (v - min) / (float) (MAX - min) * (len() - 2 * r);
     }
 
     private int valueAt(float x) {
         float r = inset();
-        float t = (x - r) / Math.max(1f, getWidth() - 2 * r);
+        float t = (x - r) / Math.max(1f, len() - 2 * r);
         return clamp(Math.round(min + t * (MAX - min)));
     }
 
     @Override
     protected void onDraw(Canvas cv) {
         Context c = getContext();
-        float h = getHeight(), cy = h / 2f, half = Ui.dp(c, 2), x = xFor(value);
-        float left = inset(), right = getWidth() - inset();
+        // 竖向：把画布逆时针转 90°，下面照着“横向”画，小的在下、大的在上；数字最后再转回来
+        float length = len(), thick = vertical ? getWidth() : getHeight();
+        cv.save();
+        if (vertical) {
+            cv.translate(0, getHeight());
+            cv.rotate(-90);
+        }
+        float h = thick, cy = h / 2f, half = Ui.dp(c, 2), x = xFor(value);
+        float left = inset(), right = length - inset();
 
         // 轨道
         paint.setStyle(Paint.Style.FILL);
@@ -114,9 +138,20 @@ public class Slider extends View {
         paint.setTextSize(Ui.sp(c, Math.abs(value) >= 100 ? 10 : 11));
         paint.setLetterSpacing(-0.02f);
         String t = (value > 0 ? "+" : "") + value;
+        if (vertical) {
+            cv.save();
+            cv.rotate(90, x, cy);   // 画布转过了 -90°，数字绕滑块中心转回来，保持正着写
+        }
         cv.drawText(t, x, cy - (paint.ascent() + paint.descent()) / 2f, paint);
+        if (vertical) cv.restore();
         paint.setFakeBoldText(false);
         paint.setLetterSpacing(0f);
+        cv.restore();
+    }
+
+    /** 手指位置换成沿滑动方向的坐标（竖向时下边是 0）。 */
+    private float along(MotionEvent e) {
+        return vertical ? getHeight() - e.getY() : e.getX();
     }
 
     @Override
@@ -125,10 +160,10 @@ public class Slider extends View {
             case MotionEvent.ACTION_DOWN:
                 getParent().requestDisallowInterceptTouchEvent(true);
                 dragging = true;
-                apply(e.getX());
+                apply(along(e));
                 return true;
             case MotionEvent.ACTION_MOVE:
-                apply(e.getX());
+                apply(along(e));
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:

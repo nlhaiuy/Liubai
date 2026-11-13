@@ -170,7 +170,9 @@ public class PreviewView extends View {
         float off = curOffset() * density * scale;
         float vl, vt, vw, vh, a, b;
         if (port) {
-            float pos = Math.max(0f, Math.min(1f, sp.getFloat(MaskService.KEY_POS_P, 0.5f)));
+            // 位置按真实屏幕换算（“状态栏下”要用真实的状态栏高度），再等比画到演示屏上
+            float pos = Ui.portraitPos(c, sp.getFloat(MaskService.KEY_POS_P, 0.5f),
+                    scr[0], scr[1], ratio);
             vw = sw;
             vh = sw / ratio;
             vl = 0f;
