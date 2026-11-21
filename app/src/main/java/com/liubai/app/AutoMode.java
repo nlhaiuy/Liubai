@@ -113,6 +113,13 @@ public final class AutoMode {
      * 会被当成“本来就没开”而漏发停止，服务随后启动并一直留着（通知也不会消失）。
      */
     private static volatile boolean requested = false;
+    private static volatile long requestedAt = 0L;
+    /** “已请求”的有效期：服务正常几百毫秒内就起来了；超时还没起来（被系统拒绝等）就不再当它存在，允许重试。 */
+    private static final long REQUEST_TTL_MS = 10_000L;
+
+    private static boolean isRequested() {
+        return requested && SystemClock.elapsedRealtime() - requestedAt < REQUEST_TTL_MS;
+    }
 
     /**
      * 会临时盖在视频软件上、关闭后不一定再发“窗口切换”事件的系统弹窗（权限请求、分享面板等）：
@@ -272,7 +279,7 @@ public final class AutoMode {
         // 只有“总开关开 + 白名单模式 + 仅播放时显示”才需要监听播放状态，否则整个关掉省电
         PlaybackDetector.sync(appCtx, isMaster(appCtx) && isEnabled(appCtx) && isPlayOnly(appCtx));
         boolean desired = shouldShow();
-        boolean on = MaskService.running || requested;
+        boolean on = MaskService.running || isRequested();
         if (desired != on) apply(desired);
     }
 
@@ -282,9 +289,6 @@ public final class AutoMode {
         ensureListener(appCtx);
         return shouldShow();
     }
-
-    /** MaskService 销毁时调用：不管是被我们停掉还是被系统杀掉，都不再算“已请求”。 */
-    static void onMaskStopped() { requested = false; }
 
     private static boolean shouldShow() {
         Context c = appCtx;
@@ -340,6 +344,7 @@ public final class AutoMode {
             }
             try {
                 appCtx.startForegroundService(i);
+                requestedAt = SystemClock.elapsedRealtime();
                 requested = true;
             } catch (Exception e) {
                 requested = false;

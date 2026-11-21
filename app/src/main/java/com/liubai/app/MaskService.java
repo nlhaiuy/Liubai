@@ -43,7 +43,7 @@ public class MaskService extends Service {
 
     private static final String CHANNEL_ID = "mask";
     private static final String CHANNEL_IDLE_ID = "mask_idle";
-    public static boolean running = false;
+    public static volatile boolean running = false;
     /** 正在运行的服务：设置页拖动微调时直接调它，不用每一格都重新启动服务。 */
     private static MaskService instance;
 
@@ -145,6 +145,13 @@ public class MaskService extends Service {
 
     @SuppressWarnings("deprecation")
     private void update() {
+        // 自检：按当前设置本来就不该运行（启动请求和停止请求交错、被系统 START_STICKY 重启等
+        // 都会让服务“迟到”地起来）就自己收尾，通知由系统随服务一起撤掉，不会残留。
+        if (!AutoMode.shouldRun(this)) {
+            removeViews(false);
+            stopSelf();
+            return;
+        }
         DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
         Display d = dm.getDisplay(Display.DEFAULT_DISPLAY);
         DisplayMetrics m = new DisplayMetrics();
@@ -333,7 +340,6 @@ public class MaskService extends Service {
     public void onDestroy() {
         removeViews(true);
         running = false;
-        AutoMode.onMaskStopped();
         try {   // 兜底：停服务之后若还有迟到的 notify，在这里一并清掉，避免残留
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(1);
         } catch (Exception ignored) { }
