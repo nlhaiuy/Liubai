@@ -350,7 +350,7 @@ public class MainActivity extends Activity {
 
     /**
      * 横屏：屏幕在上、微调（− 滑条 +）在下；
-     * 竖屏：只有居中的小手机，没有滑条——在手机上上下滑动就是移动视频，上 / 下按钮直接放在手机屏幕里。
+     * 竖屏：只有居中的小手机，没有滑条和按钮——在手机上上下滑动就是移动视频，点上半部分上移、点下半部分下移（按住连续调）。
      */
     private void updateStageLayout() {
         boolean compact = editPortrait;
@@ -358,28 +358,14 @@ public class MainActivity extends Activity {
         stage.setGravity(compact ? Gravity.CENTER : Gravity.NO_GRAVITY);
 
         fine.removeAllViews();
-        shot.removeView(plusBtn);
-        shot.removeView(minusBtn);
         fine.setOrientation(LinearLayout.HORIZONTAL);
         fine.setGravity(Gravity.CENTER_VERTICAL);
         if (compact) {
-            styleStep(plusBtn, true, "▲", "上移视频");
-            styleStep(minusBtn, true, "▼", "下移视频");
-            // 演示屏占满 shot 的上面 sh 高，下面还多 10dp 阴影留白：下按钮要多抬 10dp
-            FrameLayout.LayoutParams up = new FrameLayout.LayoutParams(dp(40), dp(40),
-                    Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-            up.topMargin = dp(10);
-            FrameLayout.LayoutParams down = new FrameLayout.LayoutParams(dp(40), dp(40),
-                    Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-            down.bottomMargin = dp(20);
-            shot.addView(plusBtn, up);
-            shot.addView(minusBtn, down);
-
             shot.setLayoutParams(lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             side.setVisibility(View.GONE);
         } else {
-            styleStep(minusBtn, false, "−", "减小");
-            styleStep(plusBtn, false, "+", "增大");
+            labelStep(minusBtn, "−", "减小");
+            labelStep(plusBtn, "+", "增大");
             side.setVisibility(View.VISIBLE);
             fine.addView(minusBtn, lp(dp(44), dp(44)));
             LinearLayout.LayoutParams hlp = lp(0, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -438,18 +424,10 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    /** 步进按钮的外观：overlay = 放在演示屏里的半透明白色上 / 下按钮；否则是横屏微调行里的 − / +。 */
-    private void styleStep(TextView t, boolean overlay, String text, String desc) {
+    /** 步进按钮的文字（横屏微调行里的 − / +）。 */
+    private void labelStep(TextView t, String text, String desc) {
         t.setText(text);
         t.setContentDescription(desc);
-        t.setTextSize(overlay ? 15 : 22);
-        t.setTextColor(overlay ? Ui.PRI : Ui.INK);
-        GradientDrawable g = new GradientDrawable();
-        g.setShape(GradientDrawable.OVAL);
-        g.setColor(overlay ? 0xE6FFFFFF : Ui.CHIP);
-        if (overlay) g.setStroke(Math.max(1, dp(1)), 0x334F7CFF);
-        t.setBackground(g);
-        Ui.lift(t, overlay ? 3 : 0, 0x334F7CFF, 0x554F7CFF);
     }
 
     private TextView link(String text) {

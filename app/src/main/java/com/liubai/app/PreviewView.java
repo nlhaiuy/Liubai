@@ -11,6 +11,7 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 
 /**
  * 演示屏：开启后，视频两边（横屏）或上下（竖屏）的黑边变成白色。
@@ -52,7 +53,10 @@ public class PreviewView extends View {
         setLayerType(LAYER_TYPE_SOFTWARE, null);   // 让屏幕下面的阴影在所有机型上都能画出来
     }
 
-    /** 竖屏下，在演示屏上上下滑动 = 移动视频位置。范围、当前值、写回都由主页负责。 */
+    /**
+     * 竖屏下，直接操作演示屏：上下滑动 = 移动视频；点上半部分 = 上移 1dp，点下半部分 = 下移 1dp，
+     * 按住不放先慢后快地连续调。范围、当前值、写回都由主页负责。
+     */
     public interface ShiftListener {
         int min();
         int max();
@@ -63,21 +67,56 @@ public class PreviewView extends View {
     private ShiftListener shiftL;
     private float downY;
     private int downV;
+    private int tapDir;                 // +1 = 点的是上半部分（视频上移），-1 = 下半部分
+    private boolean dragging, repeating;
+    private int repN;
+    private final android.os.Handler hold = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable repeatTask = new Runnable() {
+        @Override
+        public void run() {
+            repeating = true;
+            step(tapDir);
+            repN++;
+            hold.postDelayed(this, repN < 6 ? 130 : repN < 16 ? 75 : 40);
+        }
+    };
 
     public void setShiftListener(ShiftListener l) {
         shiftL = l;
+    }
+
+    private void step(int dir) {
+        if (shiftL == null) return;
+        int v = Math.max(shiftL.min(), Math.min(shiftL.max(), shiftL.value() + dir));
+        if (v != shiftL.value()) shiftL.onShift(v);
     }
 
     @Override
     public boolean onTouchEvent(MotionEvent e) {
         if (shiftL == null || !portrait()) return super.onTouchEvent(e);
         switch (e.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_DOWN: {
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
                 downY = e.getY();
                 downV = shiftL.value();
+                dragging = false;
+                repeating = false;
+                repN = 0;
+                float midY = Ui.dp(getContext(), PAD_T) + screenSize()[1] / 2f;   // 演示屏的垂直中线
+                tapDir = e.getY() < midY ? 1 : -1;
+                hold.removeCallbacks(repeatTask);
+                hold.postDelayed(repeatTask, 380);
                 return true;
+            }
             case MotionEvent.ACTION_MOVE: {
+                if (repeating) return true;
+                if (!dragging) {
+                    if (Math.abs(e.getY() - downY) <= ViewConfiguration.get(getContext()).getScaledTouchSlop()) {
+                        return true;
+                    }
+                    dragging = true;                       // 动起来了：是滑动，不是点按
+                    hold.removeCallbacks(repeatTask);
+                }
                 float[] scr = Ui.realScreen(getContext());
                 float scale = screenSize()[0] / scr[1];            // 演示屏上 1 个真实 px 对应多少
                 // 手指往上滑 → 视频往上移（正数 = 往上移）；演示屏上的像素换回真实 dp
@@ -87,13 +126,24 @@ public class PreviewView extends View {
                 return true;
             }
             case MotionEvent.ACTION_UP:
-                performClick();
+                hold.removeCallbacks(repeatTask);
+                if (!dragging && !repeating) {
+                    step(tapDir);                          // 单点：只动 1dp
+                    performClick();
+                }
                 return true;
             case MotionEvent.ACTION_CANCEL:
+                hold.removeCallbacks(repeatTask);
                 return true;
             default:
                 return super.onTouchEvent(e);
         }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        hold.removeCallbacks(repeatTask);
+        super.onDetachedFromWindow();
     }
 
     @Override
