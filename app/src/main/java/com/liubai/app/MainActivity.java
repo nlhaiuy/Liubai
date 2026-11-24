@@ -56,6 +56,7 @@ public class MainActivity extends Activity {
     private View swTrack, swKnob;                   // 右上角总开关
     private LinearLayout permBox;
     private TextView statusTv, appsLink, resetBtn, updTv;
+    private String lastUpdMsg = "";
     private PreviewView preview;
     private boolean editPortrait;                   // 设置页当前在编辑竖屏还是横屏
     private Segmented segL, segP;                   // 横屏比例 / 竖屏位置
@@ -707,6 +708,14 @@ public class MainActivity extends Activity {
                 t = Updater.currentName(this) + " · 检查更新 ›";
                 break;
         }
+        // 出错时把原因弹一下（同一条只弹一次），不然只看到“失败”不知道为什么
+        if (Updater.state == Updater.ERROR && !Updater.message.isEmpty()
+                && !Updater.message.equals(lastUpdMsg)) {
+            lastUpdMsg = Updater.message;
+            Toast.makeText(this, Updater.message, Toast.LENGTH_LONG).show();
+        } else if (Updater.state != Updater.ERROR) {
+            lastUpdMsg = "";
+        }
         updTv.setText(t);
         updTv.setTextColor(color);
         updTv.setEnabled(Updater.state != Updater.CHECKING && Updater.state != Updater.DOWNLOADING);
@@ -790,6 +799,9 @@ public class MainActivity extends Activity {
         refreshAuto();
 
         // 自动更新：显示状态；打开 App 时查一次；刚在系统设置里允许了“安装未知应用”就接着装
+        // 无障碍没连上、Shizuku 又已授权：自动替留白重开（等 1.5 秒，让系统先有机会自己连上）
+        repeat.postDelayed(() -> ShizukuGrant.restoreAccessibility(this,
+                () -> repeat.postDelayed(this::refreshPerms, 1500)), 1500);
         Updater.appVisible = true;
         Updater.onChanged = () -> runOnUiThread(this::refreshUpdate);
         refreshUpdate();
@@ -1130,6 +1142,9 @@ public class MainActivity extends Activity {
         if (error.isEmpty() && !missing(i)) {
             Toast.makeText(this, "已通过 Shizuku 开启" + PERM_NAMES[i], Toast.LENGTH_SHORT).show();
             return;
+        }
+        if (!error.isEmpty()) {
+            Toast.makeText(this, "Shizuku 开启失败：" + error, Toast.LENGTH_LONG).show();
         }
         launchSystem(i);   // Shizuku 没能开启（个别系统限制），退回系统授权页
     }

@@ -114,14 +114,21 @@ final class Updater {
                 doRun(c, manual);
             } catch (Throwable t) {
                 Log.w(TAG, "update failed", t);
-                String why = t.getMessage() == null ? t.toString() : t.getMessage();
-                if (manual) set(ERROR, 0, "更新失败：" + why);
-                else set(IDLE, 0, "");      // 后台悄悄查的，网络不好之类就算了，下次再说
+                set(ERROR, 0, "更新失败：" + why(t));   // 后台查的也显示，不然看不出是网络还是别的问题
             } finally {
                 busy.set(false);
                 if (done != null) done.run();
             }
         });
+    }
+
+    /** 把异常翻成人能看懂的一句话。 */
+    private static String why(Throwable t) {
+        if (t instanceof java.net.UnknownHostException) return "连不上 GitHub（检查网络 / 需要能访问 github.com）";
+        if (t instanceof java.net.SocketTimeoutException) return "连接 GitHub 超时";
+        if (t instanceof javax.net.ssl.SSLException) return "与 GitHub 的安全连接失败";
+        String m = t.getMessage();
+        return m == null || m.isEmpty() ? t.getClass().getSimpleName() : m;
     }
 
     private static void doRun(Context c, boolean manual) throws Exception {

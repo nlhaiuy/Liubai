@@ -49,6 +49,26 @@ final class ShizukuGrant {
         withShell(c, s -> s.grant(what, pkg, comp), done);
     }
 
+    private static long lastRestore;
+
+    /**
+     * 白名单模式要靠无障碍服务；更新安装后（或重启后）它常常没连上。Shizuku 已经授权时就自动替留白重新开一遍，
+     * 不用等用户进来点。15 秒内不重复；done（可为空）在主线程回调，不管有没有真的去开。
+     */
+    static void restoreAccessibility(Context c, Runnable done) {
+        final Context app = c.getApplicationContext();
+        if (!AutoMode.isMaster(app) || !AutoMode.isEnabled(app)) return;   // 只有白名单模式才用无障碍
+        if (AutoAccessibilityService.connected) return;
+        if (PlaybackDetector.shizukuState(app) != 3) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (lastRestore != 0 && now - lastRestore < 15000) return;
+        lastRestore = now;
+        grant(app, 3, err -> {
+            Log.i(TAG, "restore accessibility: " + (err.isEmpty() ? "ok" : err));
+            if (done != null) done.run();
+        });
+    }
+
     /** 静默安装留白自己的更新包（pm install -r）。path 必须在留白外部文件目录的 update 文件夹里。 */
     static void install(Context c, String path, Done done) {
         withShell(c, s -> s.install(path), done);
