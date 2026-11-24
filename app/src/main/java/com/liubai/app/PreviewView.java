@@ -9,6 +9,7 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.view.MotionEvent;
 import android.view.View;
 
 /**
@@ -49,6 +50,55 @@ public class PreviewView extends View {
         amount = AutoMode.isMaster(c) ? 1f : 0f;
         shownRatio = curRatio();
         setLayerType(LAYER_TYPE_SOFTWARE, null);   // 让屏幕下面的阴影在所有机型上都能画出来
+    }
+
+    /** 竖屏下，在演示屏上上下滑动 = 移动视频位置。范围、当前值、写回都由主页负责。 */
+    public interface ShiftListener {
+        int min();
+        int max();
+        int value();
+        void onShift(int v);
+    }
+
+    private ShiftListener shiftL;
+    private float downY;
+    private int downV;
+
+    public void setShiftListener(ShiftListener l) {
+        shiftL = l;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent e) {
+        if (shiftL == null || !portrait()) return super.onTouchEvent(e);
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                downY = e.getY();
+                downV = shiftL.value();
+                return true;
+            case MotionEvent.ACTION_MOVE: {
+                float[] scr = Ui.realScreen(getContext());
+                float scale = screenSize()[0] / scr[1];            // 演示屏上 1 个真实 px 对应多少
+                // 手指往上滑 → 视频往上移（正数 = 往上移）；演示屏上的像素换回真实 dp
+                float dp = -(e.getY() - downY) / (scale * scr[2]);
+                int v = Math.max(shiftL.min(), Math.min(shiftL.max(), Math.round(downV + dp)));
+                if (v != shiftL.value()) shiftL.onShift(v);
+                return true;
+            }
+            case MotionEvent.ACTION_UP:
+                performClick();
+                return true;
+            case MotionEvent.ACTION_CANCEL:
+                return true;
+            default:
+                return super.onTouchEvent(e);
+        }
+    }
+
+    @Override
+    public boolean performClick() {
+        return super.performClick();
     }
 
     private boolean portrait() { return sp.getBoolean(MaskService.KEY_PORTRAIT, false); }

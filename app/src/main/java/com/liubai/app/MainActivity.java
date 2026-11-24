@@ -55,7 +55,7 @@ public class MainActivity extends Activity {
 
     private View swTrack, swKnob;                   // 右上角总开关
     private LinearLayout permBox;
-    private TextView statusTv, appsLink, resetBtn;
+    private TextView statusTv, appsLink, resetBtn, updTv;
     private PreviewView preview;
     private boolean editPortrait;                   // 设置页当前在编辑竖屏还是横屏
     private Segmented segL, segP;                   // 横屏比例 / 竖屏位置
@@ -176,6 +176,7 @@ public class MainActivity extends Activity {
         buildPlayRow(card);
         buildRatioRow(card);
         buildStrengthRow(card);
+        buildUpdateRow(card);
 
         // 底部渐隐，让大开关浮在内容上面
         View fade = new View(this);
@@ -315,8 +316,15 @@ public class MainActivity extends Activity {
             if (user) tick(v);
             changed();
         });
+        // 竖屏没有滑条：直接在演示屏上上下滑动；滑条对象只留着当范围 / 当前值的存放处
+        preview.setShiftListener(new PreviewView.ShiftListener() {
+            @Override public int min() { return slider.getMin(); }
+            @Override public int max() { return slider.getMax(); }
+            @Override public int value() { return slider.getValue(); }
+            @Override public void onShift(int v) { setOffset(v); }
+        });
 
-        side = new LinearLayout(this);          // 微调：横屏是屏幕下面一行，竖屏是小手机右边一列
+        side = new LinearLayout(this);          // 微调：横屏是屏幕下面一行（竖屏不用，按钮在演示屏里）
         side.setOrientation(LinearLayout.VERTICAL);
         side.addView(fine);
         stage.addView(shot);
@@ -340,31 +348,39 @@ public class MainActivity extends Activity {
         return inner / PreviewView.aspect(this) + dp(Slider.THICK_DP);
     }
 
-    /** 横屏：屏幕在上、微调（− 滑条 +）在下；竖屏：小手机在左、微调（+ 滑条 −）竖着排在右边。 */
+    /**
+     * 横屏：屏幕在上、微调（− 滑条 +）在下；
+     * 竖屏：只有居中的小手机，没有滑条——在手机上上下滑动就是移动视频，上 / 下按钮直接放在手机屏幕里。
+     */
     private void updateStageLayout() {
         boolean compact = editPortrait;
         stage.setOrientation(compact ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         stage.setGravity(compact ? Gravity.CENTER : Gravity.NO_GRAVITY);
-        slider.setVertical(compact);
 
         fine.removeAllViews();
-        fine.setOrientation(compact ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-        fine.setGravity(compact ? Gravity.CENTER_HORIZONTAL : Gravity.CENTER_VERTICAL);
+        shot.removeView(plusBtn);
+        shot.removeView(minusBtn);
+        fine.setOrientation(LinearLayout.HORIZONTAL);
+        fine.setGravity(Gravity.CENTER_VERTICAL);
         if (compact) {
-            // 上 + ，中间滑条（下小上大），下 −
-            fine.addView(plusBtn, lp(dp(44), dp(44)));
-            LinearLayout.LayoutParams vlp = lp(dp(Slider.THICK_DP), 0);
-            vlp.weight = 1f;
-            fine.addView(slider, vlp);
-            fine.addView(minusBtn, lp(dp(44), dp(44)));
+            styleStep(plusBtn, true, "▲", "上移视频");
+            styleStep(minusBtn, true, "▼", "下移视频");
+            // 演示屏占满 shot 的上面 sh 高，下面还多 10dp 阴影留白：下按钮要多抬 10dp
+            FrameLayout.LayoutParams up = new FrameLayout.LayoutParams(dp(40), dp(40),
+                    Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            up.topMargin = dp(10);
+            FrameLayout.LayoutParams down = new FrameLayout.LayoutParams(dp(40), dp(40),
+                    Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            down.bottomMargin = dp(20);
+            shot.addView(plusBtn, up);
+            shot.addView(minusBtn, down);
 
             shot.setLayoutParams(lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            LinearLayout.LayoutParams slp = lp(ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT);
-            slp.leftMargin = dp(24);   // 滑条在 56dp 宽的列里居中，加上滑块本身的留白，手机到滑块约 36dp
-            side.setLayoutParams(slp);
-            fine.setLayoutParams(lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            side.setVisibility(View.GONE);
         } else {
+            styleStep(minusBtn, false, "−", "减小");
+            styleStep(plusBtn, false, "+", "增大");
+            side.setVisibility(View.VISIBLE);
             fine.addView(minusBtn, lp(dp(44), dp(44)));
             LinearLayout.LayoutParams hlp = lp(0, ViewGroup.LayoutParams.WRAP_CONTENT);
             hlp.weight = 1f;
@@ -420,6 +436,20 @@ public class MainActivity extends Activity {
             }
         });
         return t;
+    }
+
+    /** 步进按钮的外观：overlay = 放在演示屏里的半透明白色上 / 下按钮；否则是横屏微调行里的 − / +。 */
+    private void styleStep(TextView t, boolean overlay, String text, String desc) {
+        t.setText(text);
+        t.setContentDescription(desc);
+        t.setTextSize(overlay ? 15 : 22);
+        t.setTextColor(overlay ? Ui.PRI : Ui.INK);
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(overlay ? 0xE6FFFFFF : Ui.CHIP);
+        if (overlay) g.setStroke(Math.max(1, dp(1)), 0x334F7CFF);
+        t.setBackground(g);
+        Ui.lift(t, overlay ? 3 : 0, 0x334F7CFF, 0x554F7CFF);
     }
 
     private TextView link(String text) {
@@ -624,6 +654,86 @@ public class MainActivity extends Activity {
         s.addView(seg, below());
     }
 
+    // ---------------- 软件更新 ----------------
+
+    /** 软件更新：右边是状态（点一下检查 / 更新），下面选自动更新还是手动。 */
+    private void buildUpdateRow(LinearLayout card) {
+        LinearLayout s = section(card, false);
+        updTv = link("");
+        updTv.setOnClickListener(v -> onUpdateClick());
+        Ui.press(updTv, 0.94f);
+        LinearLayout.LayoutParams lrp = lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lrp.topMargin = -dp(10);
+        lrp.bottomMargin = -dp(10);
+        LinearLayout lr = labelRow("软件更新", updTv);
+        lr.setMinimumHeight(dp(44));
+        s.addView(lr, lrp);
+
+        Segmented seg = new Segmented(this, new String[]{"自动更新", "手动"},
+                Updater.auto(this) ? 0 : 1);
+        seg.setOnSelect(i -> {
+            sp.edit().putBoolean(Updater.KEY_AUTO, i == 0).apply();
+            UpdateJobService.schedule(this, i == 0);
+            if (i == 0) Updater.run(this, false, null);   // 刚打开自动更新：马上查一次
+        });
+        Ui.press(seg, 0.985f);
+        s.addView(seg, below());
+        refreshUpdate();
+    }
+
+    private void onUpdateClick() {
+        int st = Updater.state;
+        if (st == Updater.CHECKING || st == Updater.DOWNLOADING) return;
+        if (st == Updater.NEED_PERM) {   // 安装包已经下好，只差“安装未知应用”这一项
+            startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + getPackageName())));
+            return;
+        }
+        Updater.run(this, true, null);
+    }
+
+    /** 更新状态的文字：能点的用蓝色，要注意的用橙色，其余灰色。 */
+    private void refreshUpdate() {
+        if (updTv == null) return;
+        String t;
+        int color = Ui.DIM;
+        switch (Updater.state) {
+            case Updater.CHECKING:
+                t = "检查中…";
+                break;
+            case Updater.UP_TO_DATE:
+                t = "已是最新 " + Updater.currentName(this);
+                break;
+            case Updater.AVAILABLE:
+                t = "发现 " + Updater.latestName + "，点击更新 ›";
+                color = Ui.PRI;
+                break;
+            case Updater.DOWNLOADING:
+                t = Updater.percent >= 0 ? "下载中 " + Updater.percent + "%" : "下载中…";
+                color = Ui.PRI;
+                break;
+            case Updater.INSTALLING:
+                t = "安装中…";
+                color = Ui.PRI;
+                break;
+            case Updater.NEED_PERM:
+                t = "允许安装未知应用 ›";
+                color = 0xFFD97706;
+                break;
+            case Updater.ERROR:
+                t = "失败，点击重试 ›";
+                color = 0xFFD97706;
+                break;
+            default:
+                t = Updater.currentName(this) + " · 检查更新 ›";
+                break;
+        }
+        updTv.setText(t);
+        updTv.setTextColor(color);
+        updTv.setEnabled(Updater.state != Updater.CHECKING && Updater.state != Updater.DOWNLOADING);
+    }
+
     // ---------------- 微调 ----------------
 
     private void showOffset(int v, boolean animate) {
@@ -675,6 +785,8 @@ public class MainActivity extends Activity {
         repeat.removeCallbacksAndMessages(null);
         AutoAccessibilityService.onStateChanged = null;
         PlaybackDetector.onStateChanged = null;
+        Updater.onChanged = null;
+        Updater.appVisible = false;
     }
 
     @Override
@@ -698,6 +810,17 @@ public class MainActivity extends Activity {
         AutoMode.evaluate(this);   // 重启后总开关还是开着，但遮罩没在运行：这里补上
         updateUi(false);
         refreshAuto();
+
+        // 自动更新：显示状态；打开 App 时查一次；刚在系统设置里允许了“安装未知应用”就接着装
+        Updater.appVisible = true;
+        Updater.onChanged = () -> runOnUiThread(this::refreshUpdate);
+        refreshUpdate();
+        UpdateJobService.schedule(this, Updater.auto(this));
+        if (Updater.state == Updater.NEED_PERM && getPackageManager().canRequestPackageInstalls()) {
+            Updater.run(this, true, null);
+        } else if (Updater.auto(this)) {
+            Updater.maybeCheck(this);
+        }
     }
 
     // ---------------- 状态刷新 ----------------
