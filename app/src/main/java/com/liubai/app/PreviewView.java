@@ -70,6 +70,8 @@ public class PreviewView extends View {
     private int tapDir;                 // +1 = 点的是上半部分（视频上移），-1 = 下半部分
     private boolean dragging, repeating;
     private int repN;
+    private float press;                // 点按反馈的强度 0..1（按下渐入、松开渐出）
+    private ValueAnimator pressAnim;
     private final android.os.Handler hold = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable repeatTask = new Runnable() {
         @Override
@@ -83,6 +85,14 @@ public class PreviewView extends View {
 
     public void setShiftListener(ShiftListener l) {
         shiftL = l;
+    }
+
+    private void pressTo(float to, long ms) {
+        if (pressAnim != null) pressAnim.cancel();
+        pressAnim = ValueAnimator.ofFloat(press, to);
+        pressAnim.setDuration(ms);
+        pressAnim.addUpdateListener(a -> { press = (Float) a.getAnimatedValue(); invalidate(); });
+        pressAnim.start();
     }
 
     private void step(int dir) {
@@ -106,6 +116,7 @@ public class PreviewView extends View {
                 tapDir = e.getY() < midY ? 1 : -1;
                 hold.removeCallbacks(repeatTask);
                 hold.postDelayed(repeatTask, 380);
+                pressTo(1f, 70);
                 return true;
             }
             case MotionEvent.ACTION_MOVE: {
@@ -116,6 +127,7 @@ public class PreviewView extends View {
                     }
                     dragging = true;                       // 动起来了：是滑动，不是点按
                     hold.removeCallbacks(repeatTask);
+                    pressTo(0f, 160);
                 }
                 float[] scr = Ui.realScreen(getContext());
                 float scale = screenSize()[0] / scr[1];            // 演示屏上 1 个真实 px 对应多少
@@ -127,6 +139,7 @@ public class PreviewView extends View {
             }
             case MotionEvent.ACTION_UP:
                 hold.removeCallbacks(repeatTask);
+                pressTo(0f, 260);
                 if (!dragging && !repeating) {
                     step(tapDir);                          // 单点：只动 1dp
                     performClick();
@@ -134,6 +147,7 @@ public class PreviewView extends View {
                 return true;
             case MotionEvent.ACTION_CANCEL:
                 hold.removeCallbacks(repeatTask);
+                pressTo(0f, 160);
                 return true;
             default:
                 return super.onTouchEvent(e);
@@ -143,6 +157,8 @@ public class PreviewView extends View {
     @Override
     protected void onDetachedFromWindow() {
         hold.removeCallbacks(repeatTask);
+        if (pressAnim != null) pressAnim.cancel();
+        press = 0f;
         super.onDetachedFromWindow();
     }
 
@@ -345,6 +361,30 @@ public class PreviewView extends View {
             cv.drawRect(a, sh * 0.7f, sw - b, sh, paint);
         }
         paint.setShader(null);
+
+        // 点按反馈（竖屏）：被点的那一半泛起淡蓝，中间浮出带圆底的 ▲ / ▼，松开后渐渐消失
+        if (port && press > 0.001f) {
+            boolean up = tapDir > 0;
+            float top = up ? 0f : sh / 2f, bot = up ? sh / 2f : sh;
+            paint.setColor((Math.round(0x40 * press) << 24) | (Ui.PRI & 0x00FFFFFF));
+            cv.drawRect(0, top, sw, bot, paint);
+            float g = sw * 0.12f * (0.8f + 0.2f * press), gx = sw / 2f, gy = (top + bot) / 2f;
+            paint.setColor((Math.round(0xE6 * press) << 24) | (Ui.PRI & 0x00FFFFFF));
+            cv.drawCircle(gx, gy, g * 1.7f, paint);
+            paint.setColor((Math.round(0xFF * press) << 24) | 0xFFFFFF);
+            tri.reset();
+            if (up) {
+                tri.moveTo(gx - g, gy + g * 0.55f);
+                tri.lineTo(gx + g, gy + g * 0.55f);
+                tri.lineTo(gx, gy - g * 0.7f);
+            } else {
+                tri.moveTo(gx - g, gy - g * 0.55f);
+                tri.lineTo(gx + g, gy - g * 0.55f);
+                tri.lineTo(gx, gy + g * 0.7f);
+            }
+            tri.close();
+            cv.drawPath(tri, paint);
+        }
         cv.restore();
 
         // 屏幕外的细描边
