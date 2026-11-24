@@ -14,4 +14,10 @@ interface IShellService {
      * component 是 包名/类名（无障碍、通知使用权用）。成功返回空字符串，失败返回原因。
      */
     String grant(int what, String pkg, String component) = 2;
+
+    /**
+     * 以 shell 身份静默安装（覆盖更新）留白自己的安装包：pm install -r。
+     * path 只接受留白自己外部文件目录下 update 文件夹里的 .apk。成功返回空字符串，失败返回原因。
+     */
+    String install(String path) = 3;
 }

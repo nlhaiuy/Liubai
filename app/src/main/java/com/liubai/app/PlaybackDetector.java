@@ -41,7 +41,7 @@ public final class PlaybackDetector {
 
     public static final String SHIZUKU_PKG = "moe.shizuku.privileged.api";
     private static final int SHIZUKU_REQ = 1001;
-    private static final int SHELL_VERSION = 2;   // 服务端接口变了（新增 grant），升版本让 Shizuku 重启旧的服务进程
+    private static final int SHELL_VERSION = 3;   // 服务端接口变了（新增 grant、install），升版本让 Shizuku 重启旧的服务进程
 
     private static final Set<String> EMPTY = Collections.emptySet();
     private static final Handler main = new Handler(Looper.getMainLooper());

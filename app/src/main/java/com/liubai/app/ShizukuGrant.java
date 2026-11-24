@@ -34,6 +34,11 @@ final class ShizukuGrant {
 
     private ShizukuGrant() { }
 
+    /** 在 shell 服务里做的一件事：成功返回空字符串，失败返回原因。 */
+    private interface Op {
+        String run(IShellService s) throws Exception;
+    }
+
     /** what：0 悬浮窗、1 通知、2 后台运行、3 无障碍、4 通知使用权。 */
     static void grant(Context c, int what, Done done) {
         final Context app = c.getApplicationContext();
@@ -41,10 +46,21 @@ final class ShizukuGrant {
         final String comp = what == 3
                 ? new ComponentName(app, AutoAccessibilityService.class).flattenToString()
                 : what == 4 ? new ComponentName(app, PlaybackListenerService.class).flattenToString() : "";
+        withShell(c, s -> s.grant(what, pkg, comp), done);
+    }
+
+    /** 静默安装留白自己的更新包（pm install -r）。path 必须在留白外部文件目录的 update 文件夹里。 */
+    static void install(Context c, String path, Done done) {
+        withShell(c, s -> s.install(path), done);
+    }
+
+    /** 连上 shell 服务（播放检测已经连着就复用，否则临时连一下）并执行 op，结果在主线程回调。 */
+    private static void withShell(Context c, Op op, Done done) {
+        final Context app = c.getApplicationContext();
 
         IShellService existing = PlaybackDetector.connectedShell();
         if (existing != null) {
-            io.execute(() -> finish(done, call(existing, what, pkg, comp)));
+            io.execute(() -> finish(done, call(existing, op)));
             return;
         }
 
@@ -62,7 +78,7 @@ final class ShizukuGrant {
                 if (finished.getAndSet(true)) return;
                 final IShellService s = IShellService.Stub.asInterface(b);
                 io.execute(() -> {
-                    String err = call(s, what, pkg, comp);
+                    String err = call(s, op);
                     main.post(() -> unbind(app, holder[0]));
                     finish(done, err);
                 });
@@ -80,12 +96,12 @@ final class ShizukuGrant {
         }
     }
 
-    private static String call(IShellService s, int what, String pkg, String comp) {
+    private static String call(IShellService s, Op op) {
         try {
-            String r = s.grant(what, pkg, comp);
+            String r = op.run(s);
             return r == null ? "" : r.trim();
         } catch (Throwable t) {
-            Log.w(TAG, "grant failed", t);
+            Log.w(TAG, "shell call failed", t);
             return String.valueOf(t);
         }
     }

@@ -151,6 +151,14 @@ final class Updater {
             }
         }
 
+        // Shizuku 就绪：以 shell 身份 pm install -r，不弹确认，也不需要“安装未知应用”
+        if (PlaybackDetector.shizukuState(c) == 3) {
+            set(INSTALLING, 0, "");
+            String err = installViaShizuku(c, f);
+            if (err.isEmpty() || currentCode(c) >= code) return;   // 装好后本进程会被系统结束，走不到这里很正常
+            Log.w(TAG, "shizuku install failed: " + err);          // 失败：退回下面的系统安装器
+        }
+
         if (!c.getPackageManager().canRequestPackageInstalls()) {
             set(NEED_PERM, 0, "");
             if (!appVisible) {
@@ -198,8 +206,13 @@ final class Updater {
 
     // ---------------- 下载 ----------------
 
+    /**
+     * 安装包存放处。优先放在外部文件目录（/sdcard/Android/data/<包名>/files/update）：
+     * Shizuku 的 shell 进程读不了应用的私有目录，却读得了这里。没有外部存储就退回私有缓存。
+     */
     private static File dir(Context c) {
-        File d = new File(c.getCacheDir(), "update");
+        File base = c.getExternalFilesDir(null);
+        File d = new File(base != null ? base : c.getCacheDir(), "update");
         //noinspection ResultOfMethodCallIgnored
         d.mkdirs();
         return d;
@@ -262,6 +275,22 @@ final class Updater {
     }
 
     // ---------------- 安装 ----------------
+
+    /** 让 Shizuku 的 shell 服务静默安装；返回空字符串表示命令成功，否则是失败原因。最多等 2 分钟。 */
+    private static String installViaShizuku(Context c, File apk) {
+        final String[] result = {"Shizuku 没有返回结果"};
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        ShizukuGrant.install(c, apk.getAbsolutePath(), err -> {
+            result[0] = err == null ? "" : err;
+            latch.countDown();
+        });
+        try {
+            latch.await(120, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return result[0];
+    }
 
     private static void install(Context c, File apk) throws IOException {
         PackageInstaller pi = c.getPackageManager().getPackageInstaller();

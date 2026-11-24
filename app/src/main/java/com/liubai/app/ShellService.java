@@ -70,6 +70,22 @@ public class ShellService extends IShellService.Stub {
         }
     }
 
+    /** 只认留白自己的 update 目录：/storage/emulated/<用户>/Android/data/com.liubai.app/files/update/xxx.apk */
+    private static final Pattern APK_PATH = Pattern.compile(
+            "/storage/emulated/[0-9]+/Android/data/com\\.liubai\\.app/files/update/[A-Za-z0-9_.-]+\\.apk");
+
+    @Override
+    public String install(String path) {
+        if (path == null || path.contains("..") || !APK_PATH.matcher(path).matches()) return "bad path";
+        try {
+            // -r：覆盖安装并保留数据；成功时 pm 输出 Success（本进程随后会被系统结束，结果以应用已被替换为准）
+            String o = out("pm", "install", "-r", path);
+            return o.contains("Success") ? "" : (o.trim().isEmpty() ? "pm install failed" : o.trim());
+        } catch (Exception e) {
+            return String.valueOf(e);
+        }
+    }
+
     /**
      * 开启无障碍服务。已经在列表里（常见于“开着但没连上”）就先摘掉再加回去，让系统重新绑定一次。
      */
